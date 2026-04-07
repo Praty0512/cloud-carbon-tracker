@@ -1,9 +1,23 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.db
-.env
+
+# Virtual environments
 venv/
-.env/
+.venv/
+.saas-venv/
+
+# Environment variables
+.env
+
+# Database
+*.db
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Project-specific
+*.zip

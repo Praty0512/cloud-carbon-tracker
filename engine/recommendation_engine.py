@@ -1,17 +1,30 @@
-def get_recommendations(vm,storage,region,carbon):
+"""Recommendation engine for carbon optimization suggestions."""
 
-    rec=[]
+
+def get_recommendations(vm, storage, region, carbon):
+    """Generate carbon optimization recommendations.
+    
+    Args:
+        vm: Virtual machine hours
+        storage: Storage in GB
+        region: AWS region
+        carbon: Total carbon emissions in kg CO2
+        
+    Returns:
+        List of recommendation strings
+    """
+    recommendations = []
 
     if vm < 50:
-        rec.append("Use serverless compute")
+        recommendations.append("💡 Use serverless compute for lower resource needs")
 
     if storage > 500:
-        rec.append("Move cold data to archival storage")
+        recommendations.append("💾 Move cold data to archival storage for cost savings")
 
     if region == "india":
-        rec.append("Deploy in Europe region to reduce carbon")
+        recommendations.append("🌍 Consider deploying in Europe region to reduce carbon emissions")
 
     if carbon > 100:
-        rec.append("Optimize VM allocation")
+        recommendations.append("⚙️ Optimize VM allocation and resource utilization")
 
-    return rec
+    return recommendations
