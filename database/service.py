@@ -1,11 +1,12 @@
 """Database service layer for SaaS workflows."""
 
 from __future__ import annotations
-
+from utils.encryption import enc, dec
 from datetime import datetime, timedelta
 import hashlib
 import secrets
 from typing import Any
+from passlib.hash import bcrypt
 
 from sqlalchemy import desc, func, insert, select, update
 
@@ -60,11 +61,11 @@ class UserService:
     @staticmethod
     def create_user(email: str, password: str, full_name: str | None = None) -> UserModel:
         """Create a new user."""
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        password_hash = bcrypt.hash(password)
         with get_connection() as connection:
             user_id = connection.execute(
                 insert(users).values(
-                    email=email,
+                    email=enc(email),  # Encrypt email
                     password_hash=password_hash,
                     full_name=full_name,
                 )
@@ -76,14 +77,27 @@ class UserService:
         """Get user by ID."""
         with get_connection() as connection:
             row = connection.execute(select(users).where(users.c.id == user_id)).fetchone()
-        return UserModel(**_row_to_dict(row)) if row else None
+        
+        if not row:
+            return None
+        
+        u = UserModel(**_row_to_dict(row))
+        u.email = dec(u.email)  # Decrypt email
+        return u
 
     @staticmethod
     def get_user_by_email(email: str) -> UserModel | None:
         """Get user by email."""
         with get_connection() as connection:
-            row = connection.execute(select(users).where(users.c.email == email)).fetchone()
-        return UserModel(**_row_to_dict(row)) if row else None
+            # Must search by encrypted value
+            row = connection.execute(select(users).where(users.c.email == enc(email))).fetchone()
+        
+        if not row:
+            return None
+            
+        u = UserModel(**_row_to_dict(row))
+        u.email = dec(u.email)  # Decrypt email
+        return u
 
     @staticmethod
     def authenticate(email: str, password: str) -> UserModel | None:
@@ -91,8 +105,8 @@ class UserService:
         user = UserService.get_user_by_email(email)
         if not user:
             return None
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        return user if password_hash == user.password_hash else None
+        password_hash=bcrypt.hash(password)
+        return user if bcrypt.verify(password,user.password_hash) else None
 
 
 class OrganizationService:
@@ -109,7 +123,7 @@ class OrganizationService:
         with get_connection() as connection:
             org_id = connection.execute(
                 insert(organizations).values(
-                    name=name,
+                    name=enc(name),  # Encrypt organization name
                     owner_id=owner_id,
                     description=description,
                     plan=plan,
@@ -131,7 +145,13 @@ class OrganizationService:
             row = connection.execute(
                 select(organizations).where(organizations.c.id == org_id)
             ).fetchone()
-        return OrganizationModel(**_row_to_dict(row)) if row else None
+        
+        if not row:
+            return None
+            
+        org = OrganizationModel(**_row_to_dict(row))
+        org.name = dec(org.name)  # Decrypt organization name
+        return org
 
     @staticmethod
     def get_user_organizations(user_id: int) -> list[OrganizationModel]:
@@ -144,7 +164,13 @@ class OrganizationService:
         )
         with get_connection() as connection:
             rows = connection.execute(statement).fetchall()
-        return [OrganizationModel(**_row_to_dict(row)) for row in rows]
+        
+        results = []
+        for row in rows:
+            org = OrganizationModel(**_row_to_dict(row))
+            org.name = dec(org.name)  # Decrypt organization name
+            results.append(org)
+        return results
 
     @staticmethod
     def update_organization(
@@ -157,7 +183,7 @@ class OrganizationService:
         """Update editable organization fields."""
         values: dict[str, Any] = {}
         if name is not None:
-            values["name"] = name
+            values["name"] = enc(name)  # Encrypt updated name
         if description is not None:
             values["description"] = description
         if plan is not None:
@@ -224,7 +250,13 @@ class MembershipService:
         )
         with get_connection() as connection:
             rows = connection.execute(statement).fetchall()
-        return [_row_to_dict(row) for row in rows]
+        
+        results = []
+        for row in rows:
+            d = _row_to_dict(row)
+            d["email"] = dec(d["email"])  # Decrypt user email in membership list
+            results.append(d)
+        return results
 
     @staticmethod
     def get_member_role(org_id: int, user_id: int) -> str | None:
@@ -478,7 +510,7 @@ class CloudAccountService:
                 insert(cloud_accounts).values(
                     organization_id=org_id,
                     provider=provider,
-                    account_name=account_name,
+                    account_name=enc(account_name),  # Encrypt sensitive company account name
                     account_id=account_id,
                     region=region,
                 )
@@ -486,7 +518,10 @@ class CloudAccountService:
             row = connection.execute(
                 select(cloud_accounts).where(cloud_accounts.c.id == acc_id)
             ).fetchone()
-        return CloudAccountModel(**_row_to_dict(row))
+        
+        acc = CloudAccountModel(**_row_to_dict(row))
+        acc.account_name = dec(acc.account_name)  # Decrypt after fetch
+        return acc
 
     @staticmethod
     def get_org_cloud_accounts(org_id: int) -> list[CloudAccountModel]:
@@ -498,7 +533,13 @@ class CloudAccountService:
                 .where(cloud_accounts.c.is_active.is_(True))
                 .order_by(cloud_accounts.c.created_at.desc())
             ).fetchall()
-        return [CloudAccountModel(**_row_to_dict(row)) for row in rows]
+        
+        results = []
+        for row in rows:
+            acc = CloudAccountModel(**_row_to_dict(row))
+            acc.account_name = dec(acc.account_name)  # Decrypt account name
+            results.append(acc)
+        return results
 
     @staticmethod
     def get_or_create_cloud_account(
@@ -518,7 +559,10 @@ class CloudAccountService:
                 )
             ).fetchone()
         if row:
-            return CloudAccountModel(**_row_to_dict(row))
+            acc = CloudAccountModel(**_row_to_dict(row))
+            acc.account_name = dec(acc.account_name)
+            return acc
+            
         return CloudAccountService.create_cloud_account(
             org_id=org_id,
             provider=provider,
@@ -977,7 +1021,14 @@ class ActionItemService:
         )
         with get_connection() as connection:
             rows = connection.execute(statement).fetchall()
-        return [_row_to_dict(row) for row in rows]
+        
+        results = []
+        for row in rows:
+            d = _row_to_dict(row)
+            if d.get("owner_email"):
+                d["owner_email"] = dec(d["owner_email"])  # Decrypt owner email
+            results.append(d)
+        return results
 
 
 class ForecastModelService:

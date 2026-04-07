@@ -21,3 +21,5 @@ Thumbs.db
 
 # Project-specific
 *.zip
+
+.env

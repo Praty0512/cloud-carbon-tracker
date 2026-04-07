@@ -1,7 +1,8 @@
 """Configuration and constants for the Carbon Tracker application."""
 
 from __future__ import annotations
-
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file if available
 import json
 import re
 from pathlib import Path
