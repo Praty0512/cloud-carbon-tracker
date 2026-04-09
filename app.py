@@ -1,9 +1,9 @@
 """Main Streamlit application for Cloud Carbon Tracker."""
-
 from __future__ import annotations
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file if available
 from datetime import datetime,UTC
 import base64
-from datetime import datetime
 import hashlib
 import hmac
 import json
@@ -825,3 +825,7 @@ else:
         st.rerun()
 
     PAGE_MAP[selected_page]()
+
+
+
+

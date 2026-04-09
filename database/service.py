@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import hashlib
 import secrets
 from typing import Any
-from passlib.hash import bcrypt
+from passlib.context import CryptContext
 
 from sqlalchemy import desc, func, insert, select, update
 
@@ -40,6 +40,14 @@ from database.models import (
     UserModel,
 )
 
+# Initialize Passlib CryptContext for bcrypt
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain password against a hash."""
+    return pwd_context.verify(plain_password, hashed_password)
+
 
 def _row_to_dict(row: Any) -> dict[str, Any]:
     """Convert a SQLAlchemy row into a plain dict."""
@@ -60,12 +68,12 @@ class UserService:
 
     @staticmethod
     def create_user(email: str, password: str, full_name: str | None = None) -> UserModel:
-        """Create a new user."""
-        password_hash = bcrypt.hash(password)
+        """Create a new user with hashed password."""
+        password_hash = pwd_context.hash(password)
         with get_connection() as connection:
             user_id = connection.execute(
                 insert(users).values(
-                    email=enc(email),  # Encrypt email
+                    email=enc(email),
                     password_hash=password_hash,
                     full_name=full_name,
                 )
@@ -82,31 +90,35 @@ class UserService:
             return None
         
         u = UserModel(**_row_to_dict(row))
-        u.email = dec(u.email)  # Decrypt email
+        u.email = dec(u.email)
         return u
 
     @staticmethod
     def get_user_by_email(email: str) -> UserModel | None:
         """Get user by email."""
         with get_connection() as connection:
-            # Must search by encrypted value
-            row = connection.execute(select(users).where(users.c.email == enc(email))).fetchone()
+            rows = connection.execute(select(users)).fetchall()
         
-        if not row:
-            return None
-            
-        u = UserModel(**_row_to_dict(row))
-        u.email = dec(u.email)  # Decrypt email
-        return u
+        for row in rows:
+            try:
+                decrypted_email = dec(row._mapping["email"])
+                if decrypted_email == email:
+                    u = UserModel(**_row_to_dict(row))
+                    u.email = decrypted_email
+                    return u
+            except Exception:
+                pass
+        return None
 
     @staticmethod
     def authenticate(email: str, password: str) -> UserModel | None:
-        """Authenticate a user by email and password."""
+        """Authenticate a user by email and verify hashed password."""
         user = UserService.get_user_by_email(email)
         if not user:
             return None
-        password_hash=bcrypt.hash(password)
-        return user if bcrypt.verify(password,user.password_hash) else None
+        if not verify_password(password, user.password_hash):
+            return None
+        return user
 
 
 class OrganizationService:
@@ -123,7 +135,7 @@ class OrganizationService:
         with get_connection() as connection:
             org_id = connection.execute(
                 insert(organizations).values(
-                    name=enc(name),  # Encrypt organization name
+                    name=enc(name),
                     owner_id=owner_id,
                     description=description,
                     plan=plan,
@@ -150,7 +162,7 @@ class OrganizationService:
             return None
             
         org = OrganizationModel(**_row_to_dict(row))
-        org.name = dec(org.name)  # Decrypt organization name
+        org.name = dec(org.name)
         return org
 
     @staticmethod
@@ -168,7 +180,7 @@ class OrganizationService:
         results = []
         for row in rows:
             org = OrganizationModel(**_row_to_dict(row))
-            org.name = dec(org.name)  # Decrypt organization name
+            org.name = dec(org.name)
             results.append(org)
         return results
 
@@ -183,7 +195,7 @@ class OrganizationService:
         """Update editable organization fields."""
         values: dict[str, Any] = {}
         if name is not None:
-            values["name"] = enc(name)  # Encrypt updated name
+            values["name"] = enc(name)
         if description is not None:
             values["description"] = description
         if plan is not None:
@@ -254,7 +266,7 @@ class MembershipService:
         results = []
         for row in rows:
             d = _row_to_dict(row)
-            d["email"] = dec(d["email"])  # Decrypt user email in membership list
+            d["email"] = dec(d["email"])
             results.append(d)
         return results
 
@@ -510,7 +522,7 @@ class CloudAccountService:
                 insert(cloud_accounts).values(
                     organization_id=org_id,
                     provider=provider,
-                    account_name=enc(account_name),  # Encrypt sensitive company account name
+                    account_name=enc(account_name),
                     account_id=account_id,
                     region=region,
                 )
@@ -520,7 +532,7 @@ class CloudAccountService:
             ).fetchone()
         
         acc = CloudAccountModel(**_row_to_dict(row))
-        acc.account_name = dec(acc.account_name)  # Decrypt after fetch
+        acc.account_name = dec(acc.account_name)
         return acc
 
     @staticmethod
@@ -537,7 +549,7 @@ class CloudAccountService:
         results = []
         for row in rows:
             acc = CloudAccountModel(**_row_to_dict(row))
-            acc.account_name = dec(acc.account_name)  # Decrypt account name
+            acc.account_name = dec(acc.account_name)
             results.append(acc)
         return results
 
@@ -1026,7 +1038,7 @@ class ActionItemService:
         for row in rows:
             d = _row_to_dict(row)
             if d.get("owner_email"):
-                d["owner_email"] = dec(d["owner_email"])  # Decrypt owner email
+                d["owner_email"] = dec(d["owner_email"])
             results.append(d)
         return results
 
