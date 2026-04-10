@@ -46,14 +46,9 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
 @router.post("/login", response_model=TokenResponse)
 def login(request: LoginRequest):
     """Authenticate user and return JWT token."""
-    user = UserService.get_user_by_email(request.email)
+    # Use the authenticate method from UserService which correctly validates bcrypt passwords
+    user = UserService.authenticate(request.email, request.password)
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    # Verify password
-    import hashlib
-    password_hash = hashlib.sha256(request.password.encode()).hexdigest()
-    if password_hash != user.password_hash:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     # Get user's organization
