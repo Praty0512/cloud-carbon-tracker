@@ -16,3 +16,4 @@ google-cloud-storage>=3.4,<4
 azure-storage-blob>=12.26,<13
 cryptography
 passlib[bcrypt]
+psycopg2-binary

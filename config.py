@@ -3,6 +3,8 @@
 from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()  # Load environment variables from .env file if available
+import os
+DATABASE_URL=os.getenv("DATABASE_URL")
 import json
 import re
 from pathlib import Path

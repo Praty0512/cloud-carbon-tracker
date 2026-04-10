@@ -186,14 +186,14 @@ def initialize_db_with_sample_data()->None:
         for n,r,e,c in data:
             p=pmap.get(n)
             CarbonResultService.create_carbon_result(
-                org.id,
-                p["id"] if p else None,
-                e,
-                c,
-                e*0.68,
-                e*0.18,
-                e*0.14,
-                r
+                org_id=org.id,
+                project_id=p["id"] if p else None,
+                energy_kwh=e,
+                carbon_kg_co2=c,
+                compute_energy=e*0.68,
+                storage_energy=e*0.18,
+                network_energy=e*0.14,
+                region=r
             )
 
     # --- ALERTS ---
@@ -202,12 +202,12 @@ def initialize_db_with_sample_data()->None:
         if alerts:
             a=alerts[0]
             ActionItemService.create_action_item(
-                org.id,
-                a["id"],
-                "Validate alert",
-                a.get("description"),
-                user.id,
-                a.get("severity","medium")
+                org_id=org.id,
+                title="Validate alert",
+                alert_id=a["id"],
+                description=a.get("description"),
+                owner_user_id=user.id,
+                priority=a.get("severity", "medium")
             )
 
     # --- AUDIT ---
