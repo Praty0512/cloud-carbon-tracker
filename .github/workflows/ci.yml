@@ -25,7 +25,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff mypy
+          # Pinned: an unpinned `pip install ruff` picks up whatever is newest
+          # on the day CI runs, and ruff (pre-1.0) has shipped releases that
+          # expand the *default* enabled rule set with no config change on
+          # our end -- e.g. 0.16.x turned on isort/pyupgrade/bandit-style/etc
+          # rules that 0.15.x didn't, which broke this exact lint step
+          # against otherwise-unchanged code. Bump this pin deliberately,
+          # after checking `ruff check` output against the new version.
+          pip install ruff==0.15.11 mypy
 
       - name: Lint (ruff)
         run: ruff check engine ml compliance utils/dataset_adapter.py utils/demo_data.py database
