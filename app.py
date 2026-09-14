@@ -11,7 +11,6 @@ import os
 
 import pandas as pd
 import plotly.express as px
-import plotly.io as pio
 import streamlit as st
 
 from config import METRIC_COPY, NAV_SECTIONS, PAGE_CONFIG, PRODUCT_GLOSSARY, get_region_label
@@ -23,10 +22,9 @@ from database.service import (
     MembershipService,
     OrganizationService,
     ProjectService,
-    RecommendationService,
-    SavedReportService,
     UserService,
 )
+from utils.ui import SECTION_ICONS, apply_chart_theme, render_metric_card
 from views import (
     carbon_forecast,
     governance_center,
@@ -41,7 +39,7 @@ from views import (
 
 st.set_page_config(**PAGE_CONFIG)
 init_db()
-pio.templates.default = "plotly_dark"
+apply_chart_theme()
 
 SESSION_SECRET = os.getenv("STREAMLIT_SESSION_SECRET", "cloud-carbon-tracker-local-secret")
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 14
@@ -342,21 +340,143 @@ def inject_shell_styles() -> None:
             border: 1px solid rgba(71, 85, 105, 0.42) !important;
             color: #e8f1ff !important;
         }
+
+        /* --- Extended coverage: every page now renders through the same
+           hero-shell / glass-card / metric-card language (see
+           utils/ui.py), so this section broadens the theme to native
+           Streamlit widgets that weren't touched before (expanders,
+           sliders, checkboxes/toggles, dividers, progress bars) plus a
+           handful of small polish details (scrollbar, focus rings, hover
+           transitions, the sidebar nav). --- */
+
+        .page-eyebrow {
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #7dd3fc;
+            opacity: 0.85;
+            margin-bottom: 0.3rem;
+        }
+        .hero-icon {
+            filter: drop-shadow(0 2px 6px rgba(2, 8, 23, 0.4));
+        }
+
+        .glass-card,
+        .metric-card {
+            transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+        }
+        .glass-card:hover {
+            border-color: rgba(125, 211, 252, 0.32);
+        }
+        .metric-card:hover {
+            border-color: rgba(56, 189, 248, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 2.2rem 1rem;
+            color: #93a5c2;
+            border: 1px dashed rgba(100, 116, 139, 0.42);
+            border-radius: 16px;
+            background: rgba(15, 23, 42, 0.5);
+        }
+        .empty-state-icon {
+            font-size: 1.9rem;
+            margin-bottom: 0.4rem;
+            opacity: 0.85;
+        }
+        .empty-state-message {
+            font-size: 0.94rem;
+            max-width: 460px;
+            margin: 0 auto;
+        }
+
+        .soft-divider {
+            border: none;
+            border-top: 1px solid rgba(148, 163, 184, 0.14);
+            margin: 0.6rem 0;
+        }
+
+        [data-testid="stExpander"] {
+            background: rgba(12, 22, 38, 0.7);
+            border: 1px solid rgba(71, 85, 105, 0.38);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        [data-testid="stExpander"] summary {
+            color: #e8f1ff !important;
+            font-weight: 600;
+        }
+
+        [data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] {
+            background: #22c55e !important;
+            box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16) !important;
+        }
+        [data-testid="stSlider"] > div > div > div > div {
+            background: linear-gradient(90deg, #0f5e9c, #22c55e) !important;
+        }
+
+        [data-testid="stCheckbox"] label,
+        [data-testid="stToggle"] label {
+            color: #e8f1ff !important;
+        }
+
+        [data-testid="stDivider"] {
+            border-color: rgba(148, 163, 184, 0.16) !important;
+        }
+
+        [data-testid="stProgress"] > div > div {
+            background: linear-gradient(90deg, #0f5e9c, #22c55e) !important;
+        }
+
+        [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+            padding-top: 0.35rem;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stRadio"] label {
+            padding: 0.15rem 0;
+            font-size: 0.95rem;
+        }
+        section[data-testid="stSidebar"] [data-testid="stRadio"] > div {
+            gap: 0.15rem;
+        }
+        section[data-testid="stSidebar"] [data-testid="stMetric"] {
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(71, 85, 105, 0.3);
+            padding: 0.5rem 0.7rem;
+            border-radius: 12px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(7, 17, 31, 0.4);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(71, 85, 105, 0.6);
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(100, 116, 139, 0.8);
+        }
+
+        [data-testid="stButton"] button,
+        [data-testid="stFormSubmitButton"] button {
+            transition: transform 0.12s ease, box-shadow 0.12s ease;
+        }
+        [data-testid="stButton"] button:active,
+        [data-testid="stFormSubmitButton"] button:active {
+            transform: translateY(1px);
+        }
+
+        a, a:visited {
+            color: #7dd3fc;
+        }
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_metric_card(label: str, value: str, meta: str) -> None:
-    """Render a dashboard metric card."""
-    st.markdown(
-        f"""
-        <div class="metric-card">
-            <div class="label">{label}</div>
-            <div class="value">{value}</div>
-            <div class="meta">{meta}</div>
-        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -765,14 +885,14 @@ else:
         current_page = "Overview"
         st.session_state["selected_page"] = current_page
 
-    st.title("Cloud Carbon Tracker")
+    st.title("\U0001f30d Cloud Carbon Tracker")
     st.caption("Enterprise carbon intelligence workspace for cloud operations, FinOps, and sustainability teams")
 
     organizations = OrganizationService.get_user_organizations(user.id)
     organization_names = {org.name: org.id for org in organizations}
     role = MembershipService.get_member_role(organization.id, user.id) if organization else None
 
-    st.sidebar.title("Cloud Carbon Tracker")
+    st.sidebar.title("\U0001f30d Cloud Carbon Tracker")
     st.sidebar.caption("Workspace navigation and operating status")
     st.sidebar.success(f"Signed in as {user.full_name or user.email}")
     if role:
@@ -792,6 +912,7 @@ else:
         options=page_names,
         index=page_names.index(current_page),
         captions=[NAV_SECTIONS[item] for item in page_names],
+        format_func=lambda item: f"{SECTION_ICONS.get(item, '')}  {item}".strip(),
     )
     st.session_state["selected_page"] = selected_page
     st.query_params["page"] = selected_page
@@ -811,7 +932,7 @@ else:
         "Alerts and actions indicate active operational follow-up. Connected scopes are tracked in Integrations Hub."
     )
 
-    if st.sidebar.button("Sign Out", use_container_width=True):
+    if st.sidebar.button("\U0001f6aa Sign Out", use_container_width=True):
         if organization:
             AuditLogService.log(
                 org_id=organization.id,

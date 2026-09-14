@@ -1,4 +1,23 @@
-"""Helpers to normalize external cloud carbon datasets."""
+"""Helpers to normalize external cloud carbon datasets.
+
+Provider-native billing/usage exports (AWS Cost & Usage Report, GCP
+BigQuery billing export, Azure Cost Management export) are parsed here and
+turned into workspace telemetry rows using the standardized, real
+methodology in :mod:`engine.standardized_carbon_engine` -- instance type
+(when present) resolves to a real vCPU count, the raw provider region code
+is looked up against sourced grid-carbon-intensity tables
+(``data/grid_emissions_{aws,gcp,azure}.json``), and provider PUE is
+applied. Every normalized row also carries a ``data_quality`` column
+(``high`` / ``medium`` / ``low``) recording whether the instance type and
+region were actually recognized or had to fall back to a documented
+default -- this feeds directly into the compliance data-quality
+disclosure (see :mod:`compliance.reporting`).
+
+Previously the AWS/GCP paths multiplied usage-hours by a flat, made-up
+kWh-per-hour constant (``vm_hours * 0.42``) with no notion of instance
+size, and there was no Azure-specific parser at all -- an "Azure connector"
+would silently fall through to the generic, provider-agnostic normalizer.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +25,9 @@ from io import BytesIO
 
 import pandas as pd
 
-from config import get_region_intensity, resolve_region_key
+from config import resolve_region_key
+from engine.emission_factors import resolve_vcpu_count
+from engine.standardized_carbon_engine import calculate_standardized_emissions
 
 
 ALIAS_GROUPS = {
@@ -86,6 +107,48 @@ REGION_GROUPS = {
     ],
 }
 
+# Azure ARM region names (compact, lowercase, no spaces -- what Cost
+# Management exports actually contain in ResourceLocation) mapped to the
+# display names used as keys in data/grid_emissions_azure.json.
+AZURE_REGION_ALIAS: dict[str, str] = {
+    "centralus": "Central US",
+    "eastus": "East US",
+    "eastus2": "East US 2",
+    "eastus3": "East US 3",
+    "northcentralus": "North Central US",
+    "southcentralus": "South Central US",
+    "westcentralus": "West Central US",
+    "westus": "West US",
+    "westus2": "West US 2",
+    "westus3": "West US 3",
+    "eastasia": "East Asia",
+    "southeastasia": "Southeast Asia",
+    "northeurope": "North Europe",
+    "westeurope": "West Europe",
+    "centralindia": "Central India",
+    "southindia": "South India",
+    "westindia": "West India",
+    "uksouth": "UK South",
+    "ukwest": "UK West",
+    "francecentral": "France Central",
+    "finlandcentral": "Finland Central",
+    "germanywestcentral": "Germany West Central",
+    "swedencentral": "Sweden Central",
+    "polandcentral": "Poland Central",
+    "switzerlandnorth": "Switzerland North",
+    "norwayeast": "Norway East",
+    "spaincentral": "Spain Central",
+    "italynorth": "Italy North",
+    "uaenorth": "UAE North",
+    "israelcentral": "Israel Central",
+    "australiaeast": "Australia East",
+    "japaneast": "Japan East",
+    "koreacentral": "Korea Central",
+    "canadacentral": "Canada Central",
+    "brazilsouth": "Brazil South",
+    "southafricanorth": "South Africa North",
+}
+
 
 def _pick_column(columns: list[str], aliases: list[str]) -> str | None:
     """Return the first matching column for a known alias."""
@@ -147,7 +210,7 @@ def normalize_cloud_carbon_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     normalized = pd.DataFrame()
 
     normalized["timestamp"] = (
-        pd.to_datetime(df[mapped["timestamp"]]) if "timestamp" in mapped else pd.Timestamp.utcnow()
+        pd.to_datetime(df[mapped["timestamp"]]) if "timestamp" in mapped else pd.Timestamp.now('UTC')
     )
     raw_region_series = df[mapped["region"]] if "region" in mapped else pd.Series(["us"] * len(df))
     normalized["region"] = raw_region_series.map(map_region_to_app_region)
@@ -176,6 +239,20 @@ def normalize_cloud_carbon_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     if "vm_hours" not in mapped and "energy_kwh" not in mapped and "carbon" in mapped:
         normalized["vm_hours"] = 0.0
 
+    # Generic/Kaggle-style datasets normally carry no instance or provider
+    # metadata, so they're tagged "low" by default -- but if the file
+    # already carries a data_quality column (e.g. it's a round-tripped
+    # export from this app's own realistic demo-data generator, which
+    # computes real standardized-engine figures up front), trust and
+    # pass that through rather than silently downgrading a real result.
+    data_quality_col = _pick_column(columns, ["data_quality", "data_quality_tier"])
+    if data_quality_col:
+        allowed = {"high", "medium", "low", "unknown"}
+        normalized["data_quality"] = (
+            df[data_quality_col].astype(str).str.lower().where(lambda s: s.isin(allowed), "low")
+        )
+    else:
+        normalized["data_quality"] = "low"
     return normalized
 
 
@@ -196,8 +273,88 @@ def looks_like_gcp_billing_export(df: pd.DataFrame) -> bool:
     )
 
 
+def looks_like_azure_cost_export(df: pd.DataFrame) -> bool:
+    """Return whether the dataframe resembles an Azure Cost Management export."""
+    columns = {column.lower() for column in df.columns}
+    signature_columns = {
+        "resourcelocation",
+        "metercategory",
+        "metersubcategory",
+        "metername",
+        "consumedservice",
+        "pretaxcost",
+        "resourceid",
+    }
+    return len(columns & signature_columns) >= 3
+
+
+def _best_effort_instance_type(text: object) -> str | None:
+    """Normalize a free-text billing column into a string resolve_vcpu_count() can match.
+
+    Azure meter names look like "D4s v5" rather than "standard_d4s_v5"; GCP
+    SKU descriptions embed a family name inside a longer sentence. This
+    tries the raw text first, then the Azure "standard_<slug>" form, and
+    returns whichever one actually resolves -- falling back to the raw text
+    (still passed through so ``resolve_vcpu_count`` can apply its documented
+    default and flag the row as unmatched, rather than silently dropping
+    the value).
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    if resolve_vcpu_count(raw)[1]:
+        return raw
+    slug = "standard_" + raw.lower().replace(" ", "_")
+    if resolve_vcpu_count(slug)[1]:
+        return slug
+    return raw
+
+
+def _standardize_rows(
+    df: pd.DataFrame,
+    *,
+    provider: str,
+    region_series: pd.Series,
+    hours_series: pd.Series,
+    instance_series: pd.Series | None,
+    cost_series: pd.Series,
+) -> pd.DataFrame:
+    """Run every row through the standardized CCF-methodology engine.
+
+    Row-wise (not vectorized) on purpose: each row can carry a different
+    instance type / region, and billing exports in this project's scale
+    (portfolio-level monthly exports, not raw per-second telemetry) are
+    small enough that clarity wins over micro-optimizing this loop. A
+    future iteration ingesting raw per-resource CUR line items at scale
+    should vectorize this by pre-grouping identical (region, instance type)
+    combinations.
+    """
+    energy_kwh: list[float] = []
+    carbon_kg: list[float] = []
+    data_quality: list[str] = []
+
+    for idx in range(len(df)):
+        instance_type = instance_series.iloc[idx] if instance_series is not None else None
+        result = calculate_standardized_emissions(
+            provider=provider,
+            region_code=str(region_series.iloc[idx]),
+            instance_type=_best_effort_instance_type(instance_type),
+            hours=float(hours_series.iloc[idx]) if pd.notna(hours_series.iloc[idx]) else 0.0,
+            include_embodied=False,
+        )
+        energy_kwh.append(result.energy_kwh)
+        carbon_kg.append(result.total_carbon_kg)
+        data_quality.append(result.data_quality)
+
+    df = df.copy()
+    df["energy_kwh"] = energy_kwh
+    df["carbon"] = carbon_kg
+    df["data_quality"] = data_quality
+    return df
+
+
 def normalize_aws_cur_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize a subset of common AWS CUR columns into workspace telemetry shape."""
+    """Normalize AWS Cost & Usage Report (CUR) columns into workspace telemetry shape."""
     normalized = pd.DataFrame()
 
     timestamp_col = next(
@@ -218,7 +375,6 @@ def normalize_aws_cur_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             for column in df.columns
             if column.lower() in {
                 "resourcetags/user:project",
-                "resourcetags/user:project",
                 "lineitem/resourceid",
                 "bill/payeraccountname",
             }
@@ -231,6 +387,10 @@ def normalize_aws_cur_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             for column in df.columns
             if column.lower() in {"product/productname", "lineitem/productcode", "product/servicename"}
         ),
+        None,
+    )
+    instance_type_col = next(
+        (column for column in df.columns if column.lower() in {"product/instancetype", "lineitem/usagetype"}),
         None,
     )
     usage_col = next(
@@ -255,9 +415,9 @@ def normalize_aws_cur_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     normalized["timestamp"] = (
-        pd.to_datetime(df[timestamp_col], errors="coerce").fillna(pd.Timestamp.utcnow())
+        pd.to_datetime(df[timestamp_col], errors="coerce").fillna(pd.Timestamp.now('UTC'))
         if timestamp_col
-        else pd.Timestamp.utcnow()
+        else pd.Timestamp.now('UTC')
     )
     raw_region = df[region_col].astype(str) if region_col else pd.Series(["us-east-1"] * len(df))
     normalized["source_region"] = raw_region
@@ -269,8 +429,16 @@ def normalize_aws_cur_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     normalized["storage_gb"] = 0.0
     normalized["network_gb"] = 0.0
     normalized["cost"] = pd.to_numeric(df[cost_col], errors="coerce").fillna(0.0) if cost_col else 0.0
-    normalized["energy_kwh"] = normalized["vm_hours"] * 0.42
-    normalized["carbon"] = normalized["energy_kwh"] * normalized["region_key"].map(get_region_intensity)
+
+    instance_series = df[instance_type_col].astype(str) if instance_type_col else None
+    normalized = _standardize_rows(
+        normalized,
+        provider="AWS",
+        region_series=raw_region,
+        hours_series=normalized["vm_hours"],
+        instance_series=instance_series,
+        cost_series=normalized["cost"],
+    )
     return normalized
 
 
@@ -326,11 +494,19 @@ def normalize_gcp_billing_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         ),
         None,
     )
+    # GCP billing exports typically describe the machine type in the SKU
+    # description (e.g. "N2 Predefined Instance Core running in Americas")
+    # rather than a clean instance-type field -- treat sku/service
+    # description as a best-effort text source for vCPU resolution.
+    sku_col = next(
+        (column for column in df.columns if column.lower() in {"sku.description", "resource.name"}),
+        None,
+    )
 
     normalized["timestamp"] = (
-        pd.to_datetime(df[timestamp_col], errors="coerce").fillna(pd.Timestamp.utcnow())
+        pd.to_datetime(df[timestamp_col], errors="coerce").fillna(pd.Timestamp.now('UTC'))
         if timestamp_col
-        else pd.Timestamp.utcnow()
+        else pd.Timestamp.now('UTC')
     )
     raw_region = df[region_col].fillna("us-central1").astype(str) if region_col else pd.Series(["us-central1"] * len(df))
     normalized["source_region"] = raw_region
@@ -342,8 +518,86 @@ def normalize_gcp_billing_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     normalized["storage_gb"] = 0.0
     normalized["network_gb"] = 0.0
     normalized["cost"] = pd.to_numeric(df[cost_col], errors="coerce").fillna(0.0) if cost_col else 0.0
-    normalized["energy_kwh"] = normalized["vm_hours"] * 0.38
-    normalized["carbon"] = normalized["energy_kwh"] * normalized["region_key"].map(get_region_intensity)
+
+    instance_series = df[sku_col].astype(str) if sku_col else None
+    normalized = _standardize_rows(
+        normalized,
+        provider="GCP",
+        region_series=raw_region,
+        hours_series=normalized["vm_hours"],
+        instance_series=instance_series,
+        cost_series=normalized["cost"],
+    )
+    return normalized
+
+
+def normalize_azure_cost_export_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize an Azure Cost Management (EA/MCA) usage export into workspace telemetry shape.
+
+    This provider was previously unsupported -- an Azure connector would
+    silently fall through to the generic Kaggle-style normalizer, which has
+    no notion of Azure region codes, meter categories, or VM sizes, so
+    "multi-cloud support" for Azure was aspirational rather than real. This
+    function recognizes the standard Cost Management export column set
+    (``ResourceLocation``, ``MeterCategory``, ``MeterName``,
+    ``UsageQuantity``/``Quantity``, ``PreTaxCost``/``CostInBillingCurrency``).
+    """
+    columns = {column.lower(): column for column in df.columns}
+
+    def col(*names: str) -> str | None:
+        for name in names:
+            if name in columns:
+                return columns[name]
+        return None
+
+    timestamp_col = col("date", "usagedatetime", "usagedate")
+    region_col = col("resourcelocation", "meterregion")
+    project_col = col("resourcegroup", "subscriptionname", "subscriptionid")
+    service_col = col("metercategory", "consumedservice")
+    metername_col = col("metername")
+    additionalinfo_col = col("additionalinfo")
+    usage_col = col("usagequantity", "quantity")
+    cost_col = col("pretaxcost", "costinbillingcurrency", "cost")
+
+    normalized = pd.DataFrame()
+    normalized["timestamp"] = (
+        pd.to_datetime(df[timestamp_col], errors="coerce").fillna(pd.Timestamp.now('UTC'))
+        if timestamp_col
+        else pd.Timestamp.now('UTC')
+    )
+
+    raw_region_compact = (
+        df[region_col].astype(str).str.strip().str.lower().str.replace(" ", "", regex=False)
+        if region_col
+        else pd.Series(["eastus"] * len(df))
+    )
+    azure_display_region = raw_region_compact.map(lambda code: AZURE_REGION_ALIAS.get(code, "East US"))
+    normalized["source_region"] = azure_display_region
+    normalized["region"] = azure_display_region.map(map_region_to_app_region)
+    normalized["region_key"] = azure_display_region.map(resolve_region_key)
+    normalized["project"] = df[project_col].fillna("azure-cost-export").astype(str) if project_col else "azure-cost-export"
+    normalized["service"] = df[service_col].fillna("Azure").astype(str) if service_col else "Azure"
+    normalized["vm_hours"] = pd.to_numeric(df[usage_col], errors="coerce").fillna(0.0) if usage_col else 0.0
+    normalized["storage_gb"] = 0.0
+    normalized["network_gb"] = 0.0
+    normalized["cost"] = pd.to_numeric(df[cost_col], errors="coerce").fillna(0.0) if cost_col else 0.0
+
+    instance_series = None
+    if metername_col and additionalinfo_col:
+        instance_series = df[metername_col].astype(str) + " " + df[additionalinfo_col].astype(str)
+    elif metername_col:
+        instance_series = df[metername_col].astype(str)
+    elif additionalinfo_col:
+        instance_series = df[additionalinfo_col].astype(str)
+
+    normalized = _standardize_rows(
+        normalized,
+        provider="AZURE",
+        region_series=azure_display_region,
+        hours_series=normalized["vm_hours"],
+        instance_series=instance_series,
+        cost_series=normalized["cost"],
+    )
     return normalized
 
 
@@ -359,10 +613,14 @@ def read_connector_dataframe(path_or_buffer: object, provider: str | None = None
         return normalize_aws_cur_dataframe(raw_df)
     if provider_name == "GCP" and looks_like_gcp_billing_export(raw_df):
         return normalize_gcp_billing_dataframe(raw_df)
+    if provider_name == "AZURE" and looks_like_azure_cost_export(raw_df):
+        return normalize_azure_cost_export_dataframe(raw_df)
     if looks_like_aws_cur(raw_df):
         return normalize_aws_cur_dataframe(raw_df)
     if looks_like_gcp_billing_export(raw_df):
         return normalize_gcp_billing_dataframe(raw_df)
+    if looks_like_azure_cost_export(raw_df):
+        return normalize_azure_cost_export_dataframe(raw_df)
     return normalize_cloud_carbon_dataframe(raw_df)
 
 

@@ -1,0 +1,15 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.saas-venv/
+*.db
+.env
+data/reference_datasets/_cache/
+models/registry/
+docs/
+tests/
+*.md

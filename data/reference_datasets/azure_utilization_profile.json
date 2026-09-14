@@ -1,0 +1,57 @@
+{
+  "source": "https://github.com/Azure/AzurePublicDataset/releases/download/dataset-v2/trace_data_vmtable_vmtable.csv.gz",
+  "description": "Empirical statistics from real Microsoft Azure production VM telemetry (~2.7M VMs, 30-day trace), used to ground demo/onboarding data generation in utils/demo_data.py instead of arbitrary invented numbers.",
+  "sample_size_vms": 2695548,
+  "avg_cpu_utilization_pct": {
+    "mean": 15.585,
+    "p5": 0.035,
+    "p10": 0.062,
+    "p25": 2.047,
+    "p50": 8.197,
+    "p75": 22.203,
+    "p90": 43.843,
+    "p95": 58.418,
+    "p99": 77.947
+  },
+  "max_cpu_utilization_pct": {
+    "mean": 55.695,
+    "p5": 0.093,
+    "p10": 0.402,
+    "p25": 17.89,
+    "p50": 61.829,
+    "p75": 93.72,
+    "p90": 97.659,
+    "p95": 98.327,
+    "p99": 99.185
+  },
+  "vm_lifetime_hours": {
+    "mean": 60.268,
+    "p5": 0.017,
+    "p10": 0.083,
+    "p25": 0.167,
+    "p50": 0.5,
+    "p75": 3.333,
+    "p90": 74.0,
+    "p95": 719.833,
+    "p99": 719.833
+  },
+  "category_distribution_pct": {
+    "Unknown": 91.167,
+    "Delay-insensitive": 5.921,
+    "Interactive": 2.911
+  },
+  "vcpu_count_distribution_pct": {
+    "2": 58.86,
+    "4": 30.565,
+    "8": 7.184,
+    "24": 2.986,
+    "32": 0.405
+  },
+  "fleet_daily_series_grid": {
+    "provider": "AZURE",
+    "region": "East US",
+    "co2e_per_kwh": 0.415755,
+    "quality_tier": "provider_sourced",
+    "grid_source": "EPA eGRID (SERC)"
+  }
+}

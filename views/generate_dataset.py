@@ -6,8 +6,14 @@ from utils.fake_data_generator import generate_fake_usage
 
 
 def show():
-    """Display the Generate Fake Dataset page."""
+    """Display the Generate Demo Dataset page."""
     st.header("Generate Cloud Usage Dataset")
+    st.caption(
+        "Synthetic workload activity, but every CPU-utilization and instance-size value is "
+        "sampled from real Microsoft Azure production telemetry (2.7M VMs), and every "
+        "energy/carbon figure is computed by the same standardized engine used for real "
+        "billing-export ingestion -- see data/reference_datasets/README.md."
+    )
 
     rows = st.slider("Dataset Size", min_value=10, max_value=500, value=100)
 

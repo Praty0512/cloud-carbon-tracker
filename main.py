@@ -1,5 +1,4 @@
 """FastAPI application server."""
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database.connection import init_db
@@ -14,8 +13,14 @@ except ModuleNotFoundError:  # pragma: no cover - optional in minimal local setu
 if load_dotenv:
     load_dotenv()
 
+from utils.logging_config import configure_logging, get_logger  # noqa: E402 -- must load .env first
+
+configure_logging()
+logger = get_logger(__name__)
+
 # Initialize database
 init_db()
+logger.info("startup.db_initialized")
 
 # Create FastAPI app
 app = FastAPI(
@@ -58,6 +63,7 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("startup.server_starting", extra={"host": "0.0.0.0", "port": 8000})
     uvicorn.run(
         "main:app",
         host="0.0.0.0",

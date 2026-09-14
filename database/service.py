@@ -7,7 +7,6 @@ import hashlib
 import secrets
 from typing import Any
 from passlib.context import CryptContext
-from config import DATABASE_URL
 
 from sqlalchemy import desc, func, insert, select, update
 
@@ -28,6 +27,7 @@ from database.connection import (
     organizations,
     projects,
     recommendations,
+    renewable_energy_contracts,
     saved_reports,
     usage_data,
     users,
@@ -371,6 +371,9 @@ class UsageDataService:
         cloud_account_id: int | None = None,
         project_id: int | None = None,
         timestamp: datetime | None = None,
+        provider: str | None = None,
+        region_key: str | None = None,
+        data_quality: str | None = None,
     ) -> UsageDataModel:
         """Create usage data record."""
         with get_connection() as connection:
@@ -385,6 +388,9 @@ class UsageDataService:
                     region=region,
                     cost=cost,
                     timestamp=timestamp or datetime.utcnow(),
+                    provider=provider,
+                    region_key=region_key,
+                    data_quality=data_quality,
                 )
             ).inserted_primary_key[0]
             row = connection.execute(select(usage_data).where(usage_data.c.id == record_id)).fetchone()
@@ -418,6 +424,9 @@ class CarbonResultService:
         region: str | None = None,
         project_id: int | None = None,
         timestamp: datetime | None = None,
+        provider: str | None = None,
+        region_key: str | None = None,
+        data_quality: str | None = None,
     ) -> CarbonResultModel:
         """Create carbon result record."""
         with get_connection() as connection:
@@ -432,12 +441,37 @@ class CarbonResultService:
                     network_energy=network_energy,
                     region=region,
                     timestamp=timestamp or datetime.utcnow(),
+                    provider=provider,
+                    region_key=region_key,
+                    data_quality=data_quality,
                 )
             ).inserted_primary_key[0]
             row = connection.execute(
                 select(carbon_results).where(carbon_results.c.id == record_id)
             ).fetchone()
         return CarbonResultModel(**_row_to_dict(row))
+
+    @staticmethod
+    def get_data_quality_breakdown(org_id: int, days: int = 90) -> dict[str, int]:
+        """Count recent carbon results by ingestion data-quality tier.
+
+        Rows persisted before standardized ingestion existed have no
+        ``data_quality`` value; those are reported as ``"unknown"`` rather
+        than silently excluded, since that itself is a meaningful data
+        quality/coverage signal for compliance reporting (see
+        compliance.reporting).
+        """
+        since = datetime.utcnow() - timedelta(days=days)
+        with get_connection() as connection:
+            rows = connection.execute(
+                select(carbon_results.c.data_quality, func.count().label("count"))
+                .where(carbon_results.c.organization_id == org_id, carbon_results.c.timestamp >= since)
+                .group_by(carbon_results.c.data_quality)
+            ).fetchall()
+        breakdown = {"high": 0, "medium": 0, "low": 0, "unknown": 0}
+        for tier, count in rows:
+            breakdown[tier if tier in breakdown else "unknown"] += int(count)
+        return breakdown
 
     @staticmethod
     def get_org_carbon_history(org_id: int, days: int = 30) -> list[CarbonResultModel]:
@@ -1165,8 +1199,21 @@ class IngestionRunService:
             account_id=account_id,
         )
 
+        # region_key (the real provider region code, e.g. "ap-south-1") and
+        # data_quality are optional -- generic/Kaggle-style datasets
+        # normalized by normalize_cloud_carbon_dataframe() may not always
+        # set them the same way, so group on what's actually present rather
+        # than assuming both columns exist.
+        group_columns = ["timestamp", "project", "service", "region"]
+        has_region_key = "region_key" in normalized_df.columns
+        has_data_quality = "data_quality" in normalized_df.columns
+        if has_region_key:
+            group_columns.append("region_key")
+        if has_data_quality:
+            group_columns.append("data_quality")
+
         grouped = (
-            normalized_df.groupby(["timestamp", "project", "service", "region"], as_index=False)
+            normalized_df.groupby(group_columns, as_index=False)
             .agg(
                 {
                     "vm_hours": "sum",
@@ -1195,6 +1242,8 @@ class IngestionRunService:
             usage_quantity = float(record["vm_hours"] or 0.0)
             if usage_quantity <= 0:
                 usage_quantity = float(record["energy_kwh"] or 0.0)
+            region_key_value = str(record["region_key"]) if has_region_key and record.get("region_key") is not None else None
+            data_quality_value = str(record["data_quality"]) if has_data_quality and record.get("data_quality") is not None else None
             UsageDataService.create_usage_data(
                 org_id=org_id,
                 project_id=project["id"],
@@ -1205,6 +1254,9 @@ class IngestionRunService:
                 region=str(record["region"]),
                 cost=float(record["cost"] or 0.0),
                 timestamp=timestamp,
+                provider=provider,
+                region_key=region_key_value,
+                data_quality=data_quality_value,
             )
             CarbonResultService.create_carbon_result(
                 org_id=org_id,
@@ -1216,6 +1268,9 @@ class IngestionRunService:
                 network_energy=float(record["network_gb"] or 0.0),
                 region=str(record["region"]),
                 timestamp=timestamp,
+                provider=provider,
+                region_key=region_key_value,
+                data_quality=data_quality_value,
             )
 
         run = IngestionRunService.log_run(
@@ -1447,6 +1502,76 @@ class DashboardService:
                 for rec in recs
             ],
         }
+
+
+class RenewableContractService:
+    """Service for GHG Protocol Scope 2 market-based contractual instruments.
+
+    Recording a PPA, supplier-specific factor, or Energy Attribute
+    Certificate here is what lets compliance.ghg_protocol.scope2_dual_report
+    produce a real market-based number instead of falling back to the
+    location-based figure -- see docs/COMPLIANCE_MAPPING.md.
+    """
+
+    @staticmethod
+    def create_contract(
+        org_id: int,
+        instrument_type: str,
+        co2e_per_kwh: float,
+        provider: str | None = None,
+        region_key: str | None = None,
+        cloud_account_id: int | None = None,
+        covered_kwh_per_period: float | None = None,
+        source: str | None = None,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
+        created_by: int | None = None,
+    ) -> dict[str, Any]:
+        with get_connection() as connection:
+            record_id = connection.execute(
+                insert(renewable_energy_contracts).values(
+                    organization_id=org_id,
+                    cloud_account_id=cloud_account_id,
+                    instrument_type=instrument_type,
+                    provider=provider,
+                    region_key=region_key,
+                    co2e_per_kwh=co2e_per_kwh,
+                    covered_kwh_per_period=covered_kwh_per_period,
+                    source=source,
+                    valid_from=valid_from,
+                    valid_to=valid_to,
+                    created_by=created_by,
+                )
+            ).inserted_primary_key[0]
+            row = connection.execute(
+                select(renewable_energy_contracts).where(renewable_energy_contracts.c.id == record_id)
+            ).fetchone()
+        return _row_to_dict(row)
+
+    @staticmethod
+    def get_org_contracts(org_id: int) -> list[dict[str, Any]]:
+        with get_connection() as connection:
+            rows = connection.execute(
+                select(renewable_energy_contracts)
+                .where(renewable_energy_contracts.c.organization_id == org_id)
+                .order_by(desc(renewable_energy_contracts.c.created_at))
+            ).fetchall()
+        return [_row_to_dict(row) for row in rows]
+
+    @staticmethod
+    def find_active_contract(org_id: int, provider: str, region_key: str) -> dict[str, Any] | None:
+        """Return the best-quality active contract covering a provider/region, if any."""
+        contracts = [
+            contract
+            for contract in RenewableContractService.get_org_contracts(org_id)
+            if contract["provider"] == provider and contract["region_key"] == region_key
+        ]
+        if not contracts:
+            return None
+        from compliance.ghg_protocol import MARKET_INSTRUMENT_QUALITY_RANK
+
+        contracts.sort(key=lambda c: MARKET_INSTRUMENT_QUALITY_RANK.get(c["instrument_type"], 99))
+        return contracts[0]
 
 
 class APIKeyService:

@@ -1,8 +1,7 @@
 """Database models - Pure Python approach for Python 3.13 compatibility."""
 
 from datetime import datetime
-from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -75,7 +74,13 @@ class UsageDataModel(BaseModel):
     cost: Optional[float] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    
+    # Real provider + granular region code + ingestion data-quality tier
+    # (see engine.standardized_carbon_engine). Nullable/optional because
+    # historical rows predate standardized ingestion.
+    provider: Optional[str] = None
+    region_key: Optional[str] = None
+    data_quality: Optional[str] = None
+
     class Config:
         from_attributes = True
 
@@ -92,7 +97,11 @@ class CarbonResultModel(BaseModel):
     region: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    
+    # See UsageDataModel -- same standardized-ingestion provenance fields.
+    provider: Optional[str] = None
+    region_key: Optional[str] = None
+    data_quality: Optional[str] = None
+
     class Config:
         from_attributes = True
 

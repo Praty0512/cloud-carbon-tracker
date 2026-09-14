@@ -1,0 +1,196 @@
+{
+  "_meta": {
+    "unit": "kg_co2e_per_kwh",
+    "methodology": "Cloud Carbon Footprint (CCF) open-source coefficients, using EPA eGRID for US regions and EEA/carbonfootprint.com for international regions.",
+    "source_dataset": "https://github.com/cloud-carbon-footprint/cloud-carbon-coefficients/blob/main/data/grid-emissions-factors-azure.csv",
+    "quality_tier": "provider_sourced",
+    "correction_note": "Fixed 2026-09-13: source values from the cloud-carbon-coefficients repo are published in metric tons CO2e/kWh, not kg CO2e/kWh as this file previously (incorrectly) assumed -- every value here was therefore 1000x too small. Values are now multiplied by 1000 and genuinely in kg CO2e/kWh, matching config.REGION_INTENSITY scale (e.g. US ~0.35-0.45, Norway ~0.02)."
+  },
+  "regions": {
+    "Central US": {
+      "co2e_per_kwh": 0.47223,
+      "location": "Iowa, USA",
+      "source": "EPA eGRID (MRO)"
+    },
+    "East US": {
+      "co2e_per_kwh": 0.415755,
+      "location": "Virginia, USA",
+      "source": "EPA eGRID (SERC)"
+    },
+    "East US 2": {
+      "co2e_per_kwh": 0.415755,
+      "location": "Virginia, USA",
+      "source": "EPA eGRID (SERC)"
+    },
+    "East US 3": {
+      "co2e_per_kwh": 0.415755,
+      "location": "Georgia, USA",
+      "source": "EPA eGRID (SERC)"
+    },
+    "North Central US": {
+      "co2e_per_kwh": 0.440187,
+      "location": "Illinois, USA",
+      "source": "EPA eGRID (RFC)"
+    },
+    "South Central US": {
+      "co2e_per_kwh": 0.396293,
+      "location": "Texas, USA",
+      "source": "EPA eGRID (TRE)"
+    },
+    "West Central US": {
+      "co2e_per_kwh": 0.350861,
+      "location": "Wyoming, USA",
+      "source": "EPA eGRID (WECC)"
+    },
+    "West US": {
+      "co2e_per_kwh": 0.350861,
+      "location": "California, USA",
+      "source": "EPA eGRID (WECC)"
+    },
+    "West US 2": {
+      "co2e_per_kwh": 0.350861,
+      "location": "Washington, USA",
+      "source": "EPA eGRID (WECC)"
+    },
+    "West US 3": {
+      "co2e_per_kwh": 0.350861,
+      "location": "Arizona, USA",
+      "source": "EPA eGRID (WECC)"
+    },
+    "East Asia": {
+      "co2e_per_kwh": 0.81,
+      "location": "Hong Kong",
+      "source": "carbonfootprint.com"
+    },
+    "Southeast Asia": {
+      "co2e_per_kwh": 0.4085,
+      "location": "Singapore",
+      "source": "EMA Singapore"
+    },
+    "North Europe": {
+      "co2e_per_kwh": 0.316,
+      "location": "Dublin, Ireland",
+      "source": "EEA"
+    },
+    "West Europe": {
+      "co2e_per_kwh": 0.39,
+      "location": "Netherlands",
+      "source": "EEA"
+    },
+    "Central India": {
+      "co2e_per_kwh": 0.708,
+      "location": "Pune, India",
+      "source": "carbonfootprint.com"
+    },
+    "South India": {
+      "co2e_per_kwh": 0.708,
+      "location": "Chennai, India",
+      "source": "carbonfootprint.com"
+    },
+    "West India": {
+      "co2e_per_kwh": 0.708,
+      "location": "Mumbai, India",
+      "source": "carbonfootprint.com"
+    },
+    "UK South": {
+      "co2e_per_kwh": 0.228,
+      "location": "London, UK",
+      "source": "EEA"
+    },
+    "UK West": {
+      "co2e_per_kwh": 0.228,
+      "location": "Cardiff, UK",
+      "source": "EEA"
+    },
+    "France Central": {
+      "co2e_per_kwh": 0.067,
+      "location": "Paris, France",
+      "source": "EEA"
+    },
+    "Finland Central": {
+      "co2e_per_kwh": 0.077,
+      "location": "Helsinki, Finland",
+      "source": "EEA"
+    },
+    "Germany West Central": {
+      "co2e_per_kwh": 0.402,
+      "location": "Frankfurt, Germany",
+      "source": "EEA"
+    },
+    "Belgium Central": {
+      "co2e_per_kwh": 0.154,
+      "location": "Brussels, Belgium",
+      "source": "EEA"
+    },
+    "Sweden Central": {
+      "co2e_per_kwh": 0.009,
+      "location": "Gavle, Sweden",
+      "source": "EEA"
+    },
+    "Poland Central": {
+      "co2e_per_kwh": 0.66,
+      "location": "Warsaw, Poland",
+      "source": "IEA/Ember country-average estimate"
+    },
+    "Switzerland North": {
+      "co2e_per_kwh": 0.066,
+      "location": "Zurich, Switzerland",
+      "source": "EEA (region proxy)"
+    },
+    "Norway East": {
+      "co2e_per_kwh": 0.02,
+      "location": "Oslo, Norway",
+      "source": "IEA/Ember country-average estimate"
+    },
+    "Spain Central": {
+      "co2e_per_kwh": 0.17,
+      "location": "Madrid, Spain",
+      "source": "IEA/Ember country-average estimate"
+    },
+    "Italy North": {
+      "co2e_per_kwh": 0.233,
+      "location": "Milan, Italy",
+      "source": "EEA"
+    },
+    "UAE North": {
+      "co2e_per_kwh": 0.48,
+      "location": "Dubai, UAE",
+      "source": "IEA/Ember country-average estimate"
+    },
+    "Israel Central": {
+      "co2e_per_kwh": 0.48,
+      "location": "Tel Aviv, Israel",
+      "source": "IEA/Ember country-average estimate"
+    },
+    "Australia East": {
+      "co2e_per_kwh": 0.79,
+      "location": "Sydney, Australia",
+      "source": "carbonfootprint.com"
+    },
+    "Japan East": {
+      "co2e_per_kwh": 0.506,
+      "location": "Tokyo, Japan",
+      "source": "carbonfootprint.com"
+    },
+    "Korea Central": {
+      "co2e_per_kwh": 0.5,
+      "location": "Seoul, South Korea",
+      "source": "carbonfootprint.com"
+    },
+    "Canada Central": {
+      "co2e_per_kwh": 0.13,
+      "location": "Toronto, Canada",
+      "source": "carbonfootprint.com"
+    },
+    "Brazil South": {
+      "co2e_per_kwh": 0.074,
+      "location": "Sao Paulo, Brazil",
+      "source": "carbonfootprint.com"
+    },
+    "South Africa North": {
+      "co2e_per_kwh": 0.928,
+      "location": "Johannesburg, South Africa",
+      "source": "carbonfootprint.com"
+    }
+  }
+}

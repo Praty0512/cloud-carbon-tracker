@@ -14,10 +14,10 @@ from database.service import (
     ConnectorJobService,
     ConnectorService,
     DashboardService,
-    IngestionRunService,
     MembershipService,
 )
 from engine.connector_worker import assess_connector_health, build_execution_plan, execute_due_jobs, run_dry_sync, run_file_sync
+from utils.ui import card, close_card, empty_state, metric_row, open_card, page_header
 
 
 PROVIDER_PLAYBOOKS = {
@@ -133,14 +133,14 @@ def show() -> None:
     sync_jobs = ConnectorJobService.get_org_jobs(org_id, limit=12)
     can_write = MembershipService.has_permission(org_id, getattr(user, "id", 0), "integrations.write")
 
-    st.header("Integrations Hub")
-    st.caption("Connect AWS, GCP, Azure, and dataset imports so the workspace can run on real telemetry.")
-    st.info(
-        "This is the ingestion and connectivity layer for the workspace. "
-        f"{PRODUCT_GLOSSARY['connected_scope']} {PRODUCT_GLOSSARY['connector']} {PRODUCT_GLOSSARY['telemetry']}"
+    page_header(
+        "Integrations Hub",
+        "Connect AWS, GCP, Azure, and dataset imports so the workspace can run on real telemetry. "
+        f"{PRODUCT_GLOSSARY['connected_scope']} {PRODUCT_GLOSSARY['connector']} {PRODUCT_GLOSSARY['telemetry']}",
+        icon="\U0001f50c",
     )
 
-    if st.button("Register Demo Connector Pack", use_container_width=False, disabled=not can_write):
+    if st.button("\U0001f331 Register Demo Connector Pack", use_container_width=False, disabled=not can_write):
         for provider, connector_name, auth_mode, reference, region in [
             ("AWS", "AWS Demo Connector", "AssumeRole / CUR", "aws-demo-payer", "us-east-1"),
             ("GCP", "GCP Demo Connector", "Service account + BigQuery export", "gcp-demo-billing", "europe-west4"),
@@ -181,14 +181,13 @@ def show() -> None:
         )
         st.rerun()
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Connected Estates", len(accounts))
-    col2.metric("Connectors", len(connectors))
-    col3.metric("Ingestion Runs", len(runs))
-    col4.metric("Queued Sync Jobs", len([job for job in sync_jobs if job["status"] in {"pending", "running"}]))
-    st.caption(
-        "Connected scopes are the billing accounts, subscriptions, or cloud accounts tracked in the workspace. "
-        "Connectors define how telemetry is pulled in. Ingestion runs are historical sync attempts and outcomes."
+    metric_row(
+        [
+            ("Connected Estates", str(len(accounts)), "Billing accounts, subscriptions, or cloud accounts tracked."),
+            ("Connectors", str(len(connectors)), "Reusable ingestion definitions."),
+            ("Ingestion Runs", str(len(runs)), "Historical sync attempts and outcomes."),
+            ("Queued Sync Jobs", str(len([job for job in sync_jobs if job["status"] in {"pending", "running"}])), "Pending or running now."),
+        ]
     )
 
     connector_status = pd.DataFrame(
@@ -215,12 +214,12 @@ def show() -> None:
             },
         ]
     )
-    st.subheader("Connector Readiness")
-    st.caption("Use this table to understand which enterprise data sources are already represented and which still need onboarding.")
-    st.dataframe(connector_status, use_container_width=True)
+    with card("Connector Readiness", icon="\U0001f9f0"):
+        st.caption("Use this table to understand which enterprise data sources are already represented and which still need onboarding.")
+        st.dataframe(connector_status, use_container_width=True, hide_index=True)
 
     if connectors:
-        st.subheader("Configured Connectors")
+        open_card("Configured Connectors", icon="\U0001f50c")
         st.caption("Configured connectors are reusable ingestion definitions for recurring sync jobs and governed cloud access.")
         connector_rows = []
         for connector in connectors:
@@ -293,7 +292,7 @@ def show() -> None:
             options=["manual", "scheduled"],
             key=f"queue_mode_{active_connector['id']}",
         )
-        if scheduler_col2.button("Queue Sync Job", use_container_width=True, disabled=not can_write):
+        if scheduler_col2.button("\U0001f4e4 Queue Sync Job", use_container_width=True, disabled=not can_write):
             queued_job = ConnectorJobService.queue_sync_job(
                 org_id=org_id,
                 connector_id=int(active_connector["id"]),
@@ -312,7 +311,7 @@ def show() -> None:
             )
             st.success(f"Queued sync job {queued_job['id']} for {active_connector['connector_name']}.")
             st.rerun()
-        if st.button("Save Execution Settings", use_container_width=False, disabled=not can_write):
+        if st.button("\U0001f4be Save Execution Settings", use_container_width=False, disabled=not can_write):
             updated_metadata = {
                 **current_metadata,
                 "local_dataset_path": local_dataset_path.strip(),
@@ -333,7 +332,7 @@ def show() -> None:
             )
             st.success("Connector execution settings saved.")
             st.rerun()
-        if st.button("Run Dry Sync", use_container_width=False, disabled=not can_write):
+        if st.button("\U0001f9ea Run Dry Sync", use_container_width=False, disabled=not can_write):
             result = run_dry_sync(active_connector)
             ConnectorService.mark_sync(active_connector["id"], status="connected", notes=result.summary)
             AuditLogService.log(
@@ -347,7 +346,7 @@ def show() -> None:
             )
             st.success(result.summary)
             st.rerun()
-        if st.button("Run File Sync", use_container_width=False, disabled=not can_write):
+        if st.button("\U0001f4c1 Run File Sync", use_container_width=False, disabled=not can_write):
             result = run_file_sync(
                 active_connector,
                 org_id=org_id,
@@ -374,7 +373,7 @@ def show() -> None:
                 st.success(result.summary)
             else:
                 st.warning(result.summary)
-        if st.button("Run Due Sync Jobs", use_container_width=False, disabled=not can_write):
+        if st.button("\u23e9 Run Due Sync Jobs", use_container_width=False, disabled=not can_write):
             results = execute_due_jobs(limit=10)
             if results:
                 ActivityService.log_event(
@@ -389,69 +388,70 @@ def show() -> None:
             else:
                 st.info("No due sync jobs were waiting in the queue.")
             st.rerun()
+        close_card()
 
     if runs:
-        st.subheader("Recent Ingestion History")
-        st.caption("This history shows what was ingested, how much telemetry landed, and whether each sync completed successfully.")
-        runs_df = pd.DataFrame(runs)[["source_type", "source_name", "status", "records_ingested", "total_carbon_kg_co2", "completed_at"]]
-        runs_df.columns = ["Source Type", "Source", "Status", "Records", "Carbon (kg CO2)", "Completed At"]
-        st.dataframe(runs_df, use_container_width=True)
+        with card("Recent Ingestion History", icon="\U0001f4dc"):
+            st.caption("This history shows what was ingested, how much telemetry landed, and whether each sync completed successfully.")
+            runs_df = pd.DataFrame(runs)[["source_type", "source_name", "status", "records_ingested", "total_carbon_kg_co2", "completed_at"]]
+            runs_df.columns = ["Source Type", "Source", "Status", "Records", "Carbon (kg CO2)", "Completed At"]
+            st.dataframe(runs_df, use_container_width=True, hide_index=True)
 
-    st.subheader("Background Sync Queue")
-    st.caption(
-        "Queued sync jobs are the foundation for scheduled background ingestion. "
-        "Use them to stage connector runs and process them from the UI today or from the scheduler script later."
-    )
-    st.code("python -m engine.sync_scheduler", language="powershell")
-    if sync_jobs:
-        jobs_df = pd.DataFrame(sync_jobs)[
-            ["id", "provider", "connector_name", "trigger_mode", "status", "attempt_count", "queued_at", "started_at", "completed_at"]
-        ]
-        jobs_df.columns = ["Job ID", "Provider", "Connector", "Trigger", "Status", "Attempts", "Queued At", "Started At", "Completed At"]
-        st.dataframe(jobs_df, use_container_width=True)
-    else:
-        st.info("No queued connector jobs yet.")
-
-    st.subheader("Register Cloud Connector")
-    st.caption("Choose a provider tab below to define a new ingestion pathway for a billing account, subscription, or export dataset.")
-    aws_tab, gcp_tab, azure_tab = st.tabs(["AWS", "GCP", "Azure"])
-    with aws_tab:
-        _render_connector_form("AWS", org_id, getattr(user, "id", None), can_write)
-    with gcp_tab:
-        _render_connector_form("GCP", org_id, getattr(user, "id", None), can_write)
-    with azure_tab:
-        _render_connector_form("Azure", org_id, getattr(user, "id", None), can_write)
-
-    st.subheader("Registered Cloud Accounts")
-    st.caption("Registered cloud accounts represent the connected scopes that the workspace associates with imported telemetry and controls.")
-    if accounts:
-        account_df = pd.DataFrame(accounts)[["provider", "account_name", "account_id", "region", "is_active", "created_at"]]
-        account_df.columns = ["Provider", "Account Name", "Account ID", "Region", "Active", "Created At"]
-        st.dataframe(account_df, use_container_width=True)
-    else:
-        st.info("No cloud estates connected yet.")
-
-    st.subheader("API Access")
-    st.caption("API keys are intended for automation jobs, scheduled sync workers, or controlled external tooling.")
-    if st.button("Generate Workspace API Key", use_container_width=False, disabled=not can_write):
-        key_id, plaintext_key = APIKeyService.create_api_key(
-            user_id=getattr(user, "id", 0),
-            name="Workspace automation key",
+    with card("Background Sync Queue", icon="\U0001f501"):
+        st.caption(
+            "Queued sync jobs are the foundation for scheduled background ingestion. "
+            "Use them to stage connector runs and process them from the UI today or from the scheduler script later."
         )
-        st.success(f"API key created. Key ID: {key_id}")
-        st.code(plaintext_key, language="text")
-        ActivityService.log_event(
-            org_id=org_id,
-            user_id=getattr(user, "id", None),
-            event_type="security",
-            title="API key generated",
-            description="A new workspace API key was issued for automation or ingestion jobs.",
-        )
-        AuditLogService.log(
-            org_id=org_id,
-            user_id=getattr(user, "id", None),
-            action="api_key.created",
-            entity_type="api_key",
-            entity_id=str(key_id),
-            description="Workspace automation API key generated.",
-        )
+        st.code("python -m engine.sync_scheduler", language="powershell")
+        if sync_jobs:
+            jobs_df = pd.DataFrame(sync_jobs)[
+                ["id", "provider", "connector_name", "trigger_mode", "status", "attempt_count", "queued_at", "started_at", "completed_at"]
+            ]
+            jobs_df.columns = ["Job ID", "Provider", "Connector", "Trigger", "Status", "Attempts", "Queued At", "Started At", "Completed At"]
+            st.dataframe(jobs_df, use_container_width=True, hide_index=True)
+        else:
+            empty_state("No queued connector jobs yet.", icon="\U0001f501")
+
+    with card("Register Cloud Connector", icon="➕"):
+        st.caption("Choose a provider tab below to define a new ingestion pathway for a billing account, subscription, or export dataset.")
+        aws_tab, gcp_tab, azure_tab = st.tabs(["AWS", "GCP", "Azure"])
+        with aws_tab:
+            _render_connector_form("AWS", org_id, getattr(user, "id", None), can_write)
+        with gcp_tab:
+            _render_connector_form("GCP", org_id, getattr(user, "id", None), can_write)
+        with azure_tab:
+            _render_connector_form("Azure", org_id, getattr(user, "id", None), can_write)
+
+    with card("Registered Cloud Accounts", icon="☁️"):
+        st.caption("Registered cloud accounts represent the connected scopes that the workspace associates with imported telemetry and controls.")
+        if accounts:
+            account_df = pd.DataFrame(accounts)[["provider", "account_name", "account_id", "region", "is_active", "created_at"]]
+            account_df.columns = ["Provider", "Account Name", "Account ID", "Region", "Active", "Created At"]
+            st.dataframe(account_df, use_container_width=True, hide_index=True)
+        else:
+            empty_state("No cloud estates connected yet.", icon="☁️")
+
+    with card("API Access", icon="\U0001f511"):
+        st.caption("API keys are intended for automation jobs, scheduled sync workers, or controlled external tooling.")
+        if st.button("\U0001f511 Generate Workspace API Key", use_container_width=False, disabled=not can_write):
+            key_id, plaintext_key = APIKeyService.create_api_key(
+                user_id=getattr(user, "id", 0),
+                name="Workspace automation key",
+            )
+            st.success(f"API key created. Key ID: {key_id}")
+            st.code(plaintext_key, language="text")
+            ActivityService.log_event(
+                org_id=org_id,
+                user_id=getattr(user, "id", None),
+                event_type="security",
+                title="API key generated",
+                description="A new workspace API key was issued for automation or ingestion jobs.",
+            )
+            AuditLogService.log(
+                org_id=org_id,
+                user_id=getattr(user, "id", None),
+                action="api_key.created",
+                entity_type="api_key",
+                entity_id=str(key_id),
+                description="Workspace automation API key generated.",
+            )

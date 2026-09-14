@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from engine.connector_worker import execute_due_jobs
+from dotenv import load_dotenv
+load_dotenv()
+
+from engine.connector_worker import execute_due_jobs  # noqa: E402 -- must load .env before this import
 
 
 def main() -> None:

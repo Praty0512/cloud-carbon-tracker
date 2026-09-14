@@ -23,3 +23,10 @@ Thumbs.db
 *.zip
 
 .env
+
+# Raw reference-dataset cache (regenerate with scripts/build_azure_reference_dataset.py;
+# the derived, committed outputs live in data/reference_datasets/*.csv and *.json)
+data/reference_datasets/_cache/
+
+# Trained model registry (regenerate with ml/train_and_persist.py)
+models/registry/

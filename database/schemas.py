@@ -1,7 +1,7 @@
 """Pydantic schemas for API validation and serialization."""
 
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 
 

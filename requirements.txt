@@ -17,3 +17,22 @@ azure-storage-blob>=12.26,<13
 cryptography
 passlib[bcrypt]
 psycopg2-binary
+
+# ML forecasting / anomaly detection (ml/forecasting.py, ml/forecast_models.py,
+# ml/anomaly_detection.py). ml/forecast_models.py runs a multi-algorithm
+# "bake-off" -- every family below is an OPTIONAL dependency: each one is
+# tried at import time and silently skipped from the comparison if not
+# installed, all the way down to a dependency-free numpy least-squares fit
+# if none of these are present. Install all of them for the full comparison
+# (Ridge/RandomForest/GradientBoosting/XGBoost/LightGBM/SARIMAX/LSTM).
+scikit-learn>=1.5,<2      # Ridge, RandomForest, GradientBoosting, RandomizedSearchCV tuning
+scipy>=1.13,<2
+joblib>=1.3,<2             # model registry persistence (ml/model_registry.py); also a transitive scikit-learn dependency
+xgboost>=2.0,<4            # tuned gradient-boosted trees -- usually the strongest tabular candidate
+lightgbm>=4.0,<5            # a second, faster gradient-boosting implementation for comparison
+statsmodels>=0.14,<1        # SARIMAX classical time-series baseline
+torch>=2.2,<3                # small LSTM candidate (CPU-only wheel is fine: for a lighter install use
+                              # `pip install torch --index-url https://download.pytorch.org/whl/cpu`)
+
+# Testing (tests/)
+pytest>=8.0,<9

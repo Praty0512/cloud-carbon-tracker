@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-import math
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -21,8 +19,12 @@ from database.service import (
     SavedReportService,
 )
 from engine.carbon_engine import calculate_carbon
+from ml.anomaly_detection import detect_anomalies, summarize_anomalies
+from ml.forecasting import available_library_report, build_feature_frame, recursive_forecast
+from ml.model_registry import get_or_train
 from utils.demo_workspace import build_demo_telemetry
 from utils.dataset_adapter import normalize_cloud_carbon_dataframe, summarize_dataset_fit
+from utils.ui import card, metric_row, page_header
 
 
 def _prepare_daily_series(df: pd.DataFrame) -> pd.DataFrame:
@@ -39,77 +41,6 @@ def _prepare_daily_series(df: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
     return daily
-
-
-def _build_feature_frame(series_df: pd.DataFrame) -> pd.DataFrame:
-    """Create lag and calendar features for a lightweight autoregressive model."""
-    frame = series_df.copy()
-    frame["index"] = np.arange(len(frame), dtype=float)
-    frame["lag_1"] = frame["carbon"].shift(1)
-    frame["lag_3"] = frame["carbon"].shift(3)
-    frame["lag_7"] = frame["carbon"].shift(7)
-    frame["rolling_3"] = frame["carbon"].rolling(3).mean().shift(1)
-    frame["rolling_7"] = frame["carbon"].rolling(7).mean().shift(1)
-    frame["dow"] = frame["day"].dt.dayofweek.astype(float)
-    frame["dow_sin"] = np.sin(2 * np.pi * frame["dow"] / 7.0)
-    frame["dow_cos"] = np.cos(2 * np.pi * frame["dow"] / 7.0)
-    return frame.dropna().reset_index(drop=True)
-
-
-def _fit_regression_model(feature_df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, float]:
-    """Fit a simple autoregressive regression model with least squares."""
-    feature_cols = ["index", "lag_1", "lag_3", "lag_7", "rolling_3", "rolling_7", "dow_sin", "dow_cos"]
-    x_matrix = feature_df[feature_cols].to_numpy(dtype=float)
-    x_matrix = np.hstack([np.ones((len(x_matrix), 1)), x_matrix])
-    y_vector = feature_df["carbon"].to_numpy(dtype=float)
-    coefficients, *_ = np.linalg.lstsq(x_matrix, y_vector, rcond=None)
-    fitted = x_matrix @ coefficients
-    residual_std = float(np.std(y_vector - fitted)) if len(y_vector) > 1 else 0.0
-    return coefficients, fitted, residual_std
-
-
-def _recursive_forecast(
-    daily_df: pd.DataFrame,
-    coefficients: np.ndarray,
-    horizon: int,
-    growth_pct: float,
-    reduction_pct: float,
-) -> pd.DataFrame:
-    """Generate future forecasts recursively using lagged predicted values."""
-    history = daily_df[["day", "carbon"]].copy()
-    forecasts: list[dict[str, float | pd.Timestamp]] = []
-    feature_cols = ["index", "lag_1", "lag_3", "lag_7", "rolling_3", "rolling_7", "dow_sin", "dow_cos"]
-
-    for step in range(horizon):
-        next_day = history["day"].max() + pd.Timedelta(days=1)
-        carbon_values = history["carbon"].tolist()
-        lag_1 = carbon_values[-1]
-        lag_3 = carbon_values[-3] if len(carbon_values) >= 3 else carbon_values[-1]
-        lag_7 = carbon_values[-7] if len(carbon_values) >= 7 else carbon_values[-1]
-        rolling_3 = float(np.mean(carbon_values[-3:]))
-        rolling_7 = float(np.mean(carbon_values[-7:]))
-        dow = float(next_day.dayofweek)
-        feature_row = np.array(
-            [
-                1.0,
-                float(len(history)),
-                float(lag_1),
-                float(lag_3),
-                float(lag_7),
-                float(rolling_3),
-                float(rolling_7),
-                math.sin(2 * math.pi * dow / 7.0),
-                math.cos(2 * math.pi * dow / 7.0),
-            ]
-        )
-        predicted = float(feature_row @ coefficients)
-        predicted = max(predicted, 0.0)
-        predicted *= 1 + (growth_pct / 100.0)
-        predicted *= 1 - (reduction_pct / 100.0)
-        history.loc[len(history)] = {"day": next_day, "carbon": predicted}
-        forecasts.append({"day": next_day, "carbon": predicted})
-
-    return pd.DataFrame(forecasts)
 
 
 def _workspace_history(org_id: int) -> pd.DataFrame:
@@ -132,12 +63,12 @@ def _workspace_history(org_id: int) -> pd.DataFrame:
 
 def show() -> None:
     """Display the AI forecast studio."""
-    st.header("AI Forecast Studio")
-    st.caption("Train a lightweight learning model on persisted or uploaded telemetry to project emissions and planning scenarios.")
-    st.info(
-        "This page estimates where carbon is heading based on historical telemetry. "
-        "It is useful for planning reviews, optimization prioritization, and budget-risk conversations. "
-        "Use workspace telemetry for organization-level forecasting, or upload a dataset to test a separate scenario."
+    page_header(
+        "AI Forecast Studio",
+        "Train a multi-algorithm forecasting bake-off on persisted or uploaded telemetry to project emissions and "
+        "planning scenarios. Useful for planning reviews, optimization prioritization, and budget-risk conversations. "
+        "Use workspace telemetry for organization-level forecasting, or upload a dataset to test a separate scenario.",
+        icon="\U0001f4c8",
     )
 
     org_id = st.session_state.get("current_org_id")
@@ -198,7 +129,7 @@ def show() -> None:
         st.warning("At least 10 daily points are needed to train the forecasting model.")
         return
 
-    feature_df = _build_feature_frame(daily_df)
+    feature_df = build_feature_frame(daily_df)
     if len(feature_df) < 5:
         st.warning("Not enough lagged history was found after feature engineering.")
         return
@@ -211,40 +142,88 @@ def show() -> None:
         "Expected workload growth increases forecasted demand. Planned optimization reduction reflects actions such as rightsizing, scheduling, or regional rebalancing."
     )
 
-    coefficients, fitted_values, residual_std = _fit_regression_model(feature_df)
-    forecast_df = _recursive_forecast(
+    registry_scope = f"{org_id or 'anon'}__{source_name}"
+    model, run, was_cache_hit = get_or_train(
+        registry_scope, daily_df, source_description=source_name
+    )
+    forecast_df = recursive_forecast(
         daily_df=daily_df,
-        coefficients=coefficients,
+        model=model,
+        run=run,
         horizon=horizon,
         growth_pct=float(growth_pct),
         reduction_pct=float(reduction_pct),
     )
+    mae, mape = run.cv_mae, run.cv_mape
 
-    evaluation_actual = feature_df["carbon"].to_numpy(dtype=float)
-    mae = float(np.mean(np.abs(evaluation_actual - fitted_values)))
-    mape = float(
-        np.mean(
-            np.where(
-                evaluation_actual == 0,
-                0.0,
-                np.abs((evaluation_actual - fitted_values) / evaluation_actual),
-            )
-        )
-        * 100
+    st.markdown('<div class="glass-card"><h3>\U0001f3c6 Model Performance</h3>', unsafe_allow_html=True)
+    st.caption(
+        f"Winner: **{run.model_name.replace('_', ' ').title()}** ({run.library}), "
+        f"selected from a {len(run.candidates_tried) or 1}-algorithm bake-off via "
+        f"{run.cv_folds}-fold walk-forward cross-validation. "
+        "Error metrics below are out-of-sample (computed on held-out folds), not a training-set fit. "
+        + ("Loaded from the model registry (training data unchanged since the last fit)." if was_cache_hit else "Freshly trained and persisted to the model registry.")
     )
+    metric_row(
+        [
+            ("Training Days", str(len(daily_df)), ""),
+            ("CV MAE", f"{mae:.2f} kg CO2", ""),
+            ("CV MAPE", f"{mape:.1f}%", ""),
+            ("Projected Horizon Total", f"{forecast_df['carbon'].sum():.0f} kg CO2", ""),
+        ]
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    forecast_df["lower_bound"] = np.maximum(forecast_df["carbon"] - residual_std * 1.28, 0.0)
-    forecast_df["upper_bound"] = forecast_df["carbon"] + residual_std * 1.28
+    if run.candidates_tried:
+        with st.expander(f"Model bake-off: {len(run.candidates_tried)} algorithms compared", expanded=False):
+            st.caption(
+                "Every algorithm family actually installed in this environment is cross-validated with the "
+                "exact same walk-forward split on the exact same data; the lowest out-of-sample MAE wins. "
+                "See `ml/forecast_models.py` for the full rationale behind each candidate, including why the "
+                "LSTM is included even though it's expected to lose at this data scale."
+            )
+            leaderboard_df = pd.DataFrame(
+                [{"Model": name.replace("_", " ").title(), "CV MAE (kg CO2)": mae_value} for name, mae_value in run.candidates_tried.items()]
+            ).sort_values("CV MAE (kg CO2)").reset_index(drop=True)
+            leaderboard_df.insert(0, "Rank", leaderboard_df.index + 1)
+            st.dataframe(leaderboard_df, use_container_width=True, hide_index=True)
+            if run.best_params:
+                st.caption(f"Winning hyperparameters (tuned via randomized search): `{run.best_params}`")
+            libraries = available_library_report()
+            missing = [name for name, present in libraries.items() if not present]
+            if missing:
+                st.caption(
+                    f"Not installed in this environment (skipped from the comparison): {', '.join(missing)}. "
+                    "See requirements.txt to add them."
+                )
 
-    st.subheader("Model Performance")
-    st.caption("These metrics describe how well the current model fits the available training history.")
-    perf_col1, perf_col2, perf_col3, perf_col4 = st.columns(4)
-    perf_col1.metric("Training Days", len(daily_df))
-    perf_col2.metric("MAE", f"{mae:.2f} kg CO2")
-    perf_col3.metric("MAPE", f"{mape:.1f}%")
-    perf_col4.metric("Projected Horizon Total", f"{forecast_df['carbon'].sum():.0f} kg CO2")
+    if run.feature_importance:
+        with st.expander("Model explainability: which signals drove this forecast"):
+            importance_df = pd.DataFrame(
+                {"Feature": list(run.feature_importance.keys()), "Relative Importance": list(run.feature_importance.values())}
+            )
+            st.dataframe(importance_df, use_container_width=True, hide_index=True)
 
-    st.subheader("Historical vs Forecast")
+    flagged_history = detect_anomalies(daily_df)
+    anomalies = summarize_anomalies(flagged_history)
+    if anomalies:
+        with st.expander(f"⚠️ {len(anomalies)} anomalous day(s) detected in history", expanded=any(a.severity == "high" for a in anomalies)):
+            st.caption("Days where carbon deviated sharply from the recent rolling baseline -- worth investigating before trusting the forecast trend.")
+            anomaly_table = pd.DataFrame(
+                [
+                    {
+                        "Date": a.day.strftime("%Y-%m-%d"),
+                        "Carbon (kg CO2)": round(a.carbon, 2),
+                        "Baseline (kg CO2)": round(a.baseline, 2),
+                        "Deviation": f"{a.deviation_pct:+.0f}%",
+                        "Severity": a.severity,
+                    }
+                    for a in anomalies
+                ]
+            )
+            st.dataframe(anomaly_table, use_container_width=True, hide_index=True)
+
+    st.markdown('<div class="glass-card"><h3>\U0001f4c9 Historical vs Forecast</h3>', unsafe_allow_html=True)
     st.caption("The chart shows historical emissions, forecasted emissions, and a simple confidence band around the forecast.")
     figure = go.Figure()
     figure.add_trace(
@@ -294,34 +273,44 @@ def show() -> None:
         margin=dict(l=20, r=20, t=55, b=20),
     )
     st.plotly_chart(figure, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.subheader("Scenario Summary")
-    st.caption("Use this summary to compare the latest actual performance with the projected future trajectory.")
-    summary_col1, summary_col2, summary_col3 = st.columns(3)
-    summary_col1.metric("Last Actual Day", f"{daily_df['carbon'].iloc[-1]:.1f} kg CO2")
-    summary_col2.metric("Forecast Day 30" if horizon >= 30 else f"Forecast Day {horizon}", f"{forecast_df['carbon'].iloc[-1]:.1f} kg CO2")
-    summary_col3.metric("Residual Volatility", f"{residual_std:.2f} kg CO2")
+    with card("Scenario Summary", icon="\U0001f9ee"):
+        st.caption("Use this summary to compare the latest actual performance with the projected future trajectory.")
+        band_width = run.residual_quantiles[1] - run.residual_quantiles[0]
+        metric_row(
+            [
+                ("Last Actual Day", f"{daily_df['carbon'].iloc[-1]:.1f} kg CO2", ""),
+                (
+                    "Forecast Day 30" if horizon >= 30 else f"Forecast Day {horizon}",
+                    f"{forecast_df['carbon'].iloc[-1]:.1f} kg CO2",
+                    "",
+                ),
+                ("80% Interval Width", f"{band_width:.2f} kg CO2", ""),
+            ]
+        )
 
-    forecast_table = forecast_df.copy()
-    forecast_table["day"] = forecast_table["day"].dt.strftime("%Y-%m-%d")
-    st.dataframe(
-        forecast_table.rename(
-            columns={
-                "day": "Date",
-                "carbon": "Forecast Carbon (kg CO2)",
-                "lower_bound": "Lower Bound",
-                "upper_bound": "Upper Bound",
-            }
-        ),
-        use_container_width=True,
-    )
+        forecast_table = forecast_df.copy()
+        forecast_table["day"] = forecast_table["day"].dt.strftime("%Y-%m-%d")
+        st.dataframe(
+            forecast_table.rename(
+                columns={
+                    "day": "Date",
+                    "carbon": "Forecast Carbon (kg CO2)",
+                    "lower_bound": "Lower Bound",
+                    "upper_bound": "Upper Bound",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     if org_id:
         report_summary = (
             f"Forecasted {forecast_df['carbon'].sum():.0f} kg CO2 over the next {horizon} days "
             f"using {len(daily_df)} days of history from {source_name}."
         )
-        if st.button("Save Forecast To Workspace", use_container_width=True, disabled=not can_write):
+        if st.button("\U0001f4be Save Forecast To Workspace", use_container_width=True, disabled=not can_write):
             model_run = ForecastModelService.create_model_run(
                 org_id=org_id,
                 name=f"AI Forecast {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
@@ -330,7 +319,7 @@ def show() -> None:
                 horizon_days=horizon,
                 mae=mae,
                 mape=mape,
-                residual_std=residual_std,
+                residual_std=band_width / 2.56,  # approx std-equivalent from the 80% interval width, for schema continuity
                 metadata_json={
                     "growth_pct": growth_pct,
                     "reduction_pct": reduction_pct,

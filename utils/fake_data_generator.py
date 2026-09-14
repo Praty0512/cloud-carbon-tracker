@@ -1,29 +1,16 @@
-"""Utility for generating fake cloud usage data."""
+"""Utility for generating demo cloud usage data.
 
-import pandas as pd
-import random
-from faker import Faker
-from config import REGIONS
+Kept as a thin, backward-compatible wrapper: the actual generation logic
+now lives in `utils.demo_data`, which samples CPU utilization and instance
+sizing from real Microsoft Azure production telemetry
+(`data/reference_datasets/azure_utilization_profile.json`) instead of the
+arbitrary `random.randint(50, 200)` VM-hours this module used to produce.
+See `utils/demo_data.py` for the full explanation.
+"""
 
-fake = Faker()
+from utils.demo_data import generate_realistic_usage
 
 
-def generate_fake_usage(rows=50):
-    """Generate fake cloud usage dataset."""
-    data = []
-
-    for _ in range(rows):
-        vm = random.randint(50, 200)
-        storage = random.randint(100, 1000)
-        network = random.randint(50, 500)
-        region = random.choice(REGIONS)
-
-        data.append({
-            "timestamp": fake.date_this_year(),
-            "vm_hours": vm,
-            "storage_gb": storage,
-            "network_gb": network,
-            "region": region
-        })
-
-    return pd.DataFrame(data)
+def generate_fake_usage(rows: int = 50, seed: int | None = None):
+    """Generate a demo cloud usage dataset, calibrated to real production telemetry."""
+    return generate_realistic_usage(rows=rows, seed=seed)

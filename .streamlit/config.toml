@@ -1,0 +1,18 @@
+# Streamlit theme for Cloud Carbon Tracker.
+#
+# This gives Streamlit's own native widgets (sliders, checkboxes, the
+# dropdown menu portals for selectboxes, toasts, etc.) the same dark
+# "glass" palette as the custom CSS injected by app.py::inject_shell_styles().
+# Without this, those native/portal-rendered elements fall back to
+# Streamlit's default light-ish theme and look visibly out of place next to
+# the custom-styled cards, buttons, and inputs.
+[theme]
+base = "dark"
+primaryColor = "#22c55e"
+backgroundColor = "#0a1220"
+secondaryBackgroundColor = "#111c30"
+textColor = "#e8f1ff"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false

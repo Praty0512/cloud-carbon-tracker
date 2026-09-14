@@ -7,18 +7,21 @@ import streamlit as st
 from database.service import ActivityService
 from engine.simulation_engine import simulate
 from utils.demo_workspace import build_demo_scenario
+from utils.ui import card as ui_card
+from utils.ui import page_header
 
 
 def show():
     """Display the Region Simulation page."""
-    st.header("Scenario Planner")
-    st.caption("Model regional tradeoffs across cost and emissions before moving workloads or changing placement policy.")
-    st.info(
-        "This planner is for comparing placement options before teams make infrastructure changes. "
-        "Enter an expected workload profile, then compare how candidate regions differ on carbon and cost so you can make an intentional tradeoff."
+    page_header(
+        "Scenario Planner",
+        "Model regional tradeoffs across cost and emissions before moving workloads or changing placement policy. "
+        "Enter an expected workload profile, then compare how candidate regions differ on carbon and cost so you "
+        "can make an intentional tradeoff.",
+        icon="\U0001f9ed",
     )
 
-    if st.button("Load Demo Scenario", use_container_width=False):
+    if st.button("\U0001f331 Load Demo Scenario", use_container_width=False):
         demo = build_demo_scenario()
         st.session_state["scenario_vm"] = demo["vm"]
         st.session_state["scenario_storage"] = demo["storage"]
@@ -35,23 +38,24 @@ def show():
         "VM Hours approximates compute demand, Storage GB captures persistent storage footprint, and Network GB represents transfer volume."
     )
 
-    if st.button("Run Scenario Analysis", use_container_width=True):
+    if st.button("▶️ Run Scenario Analysis", use_container_width=True):
         try:
             df = pd.DataFrame(simulate(vm, storage, network))
 
-            st.subheader("Scenario Results")
-            st.caption("Each row represents the same workload evaluated against a different regional operating profile.")
-            st.dataframe(df, use_container_width=True)
+            with ui_card("Scenario Results", icon="\U0001f4ca"):
+                st.caption("Each row represents the same workload evaluated against a different regional operating profile.")
+                st.dataframe(df, use_container_width=True, hide_index=True)
 
-            fig = px.bar(
-                df,
-                x="Region",
-                y=["Carbon", "Cost"],
-                barmode="group",
-                title="Regional Cost And Carbon Tradeoffs",
-                labels={"value": "Value", "variable": "Metric"},
-            )
-            st.plotly_chart(fig, use_container_width=True)
+                fig = px.bar(
+                    df,
+                    x="Region",
+                    y=["Carbon", "Cost"],
+                    barmode="group",
+                    title="Regional Cost And Carbon Tradeoffs",
+                    labels={"value": "Value", "variable": "Metric"},
+                )
+                fig.update_layout(margin=dict(l=10, r=10, t=48, b=10))
+                st.plotly_chart(fig, use_container_width=True)
 
             min_carbon_idx = df["Carbon"].idxmin()
             min_cost_idx = df["Cost"].idxmin()
@@ -61,13 +65,13 @@ def show():
 
             card1, card2 = st.columns(2)
             with card1:
-                st.info(
-                    f"Lowest carbon region: {best_carbon_region} "
+                st.success(
+                    f"\U0001f33f Lowest carbon region: **{best_carbon_region}** "
                     f"({df.loc[min_carbon_idx, 'Carbon']} kg CO2)"
                 )
             with card2:
-                st.info(
-                    f"Lowest cost region: {best_cost_region} "
+                st.success(
+                    f"\U0001f4b0 Lowest cost region: **{best_cost_region}** "
                     f"(${df.loc[min_cost_idx, 'Cost']:.2f})"
                 )
 

@@ -1,0 +1,157 @@
+{
+  "_meta": {
+    "unit": "kg_co2e_per_kwh",
+    "methodology": "Cloud Carbon Footprint (CCF) open-source coefficients, using Google-published grid emission factors per GCP region.",
+    "source_dataset": "https://github.com/cloud-carbon-footprint/cloud-carbon-coefficients/blob/main/data/grid-emissions-factors-gcp.csv",
+    "note": "Google also publishes real-time/hourly Carbon Free Energy percentage per region; this table is the annual-average fallback used by CCF.",
+    "quality_tier": "provider_sourced",
+    "correction_note": "Fixed 2026-09-13: source values from the cloud-carbon-coefficients repo are published in metric tons CO2e/kWh, not kg CO2e/kWh as this file previously (incorrectly) assumed -- every value here was therefore 1000x too small. Values are now multiplied by 1000 and genuinely in kg CO2e/kWh, matching config.REGION_INTENSITY scale (e.g. US ~0.35-0.45, Norway ~0.02)."
+  },
+  "regions": {
+    "us-central1": {
+      "co2e_per_kwh": 0.479,
+      "location": "Iowa, USA",
+      "source": "Google"
+    },
+    "us-east1": {
+      "co2e_per_kwh": 0.5,
+      "location": "South Carolina, USA",
+      "source": "Google"
+    },
+    "us-east4": {
+      "co2e_per_kwh": 0.383,
+      "location": "N. Virginia, USA",
+      "source": "Google"
+    },
+    "us-west1": {
+      "co2e_per_kwh": 0.117,
+      "location": "Oregon, USA",
+      "source": "Google"
+    },
+    "us-west2": {
+      "co2e_per_kwh": 0.248,
+      "location": "Los Angeles, USA",
+      "source": "Google"
+    },
+    "us-west3": {
+      "co2e_per_kwh": 0.561,
+      "location": "Salt Lake City, USA",
+      "source": "Google"
+    },
+    "us-west4": {
+      "co2e_per_kwh": 0.491,
+      "location": "Las Vegas, USA",
+      "source": "Google"
+    },
+    "asia-east1": {
+      "co2e_per_kwh": 0.541,
+      "location": "Taiwan",
+      "source": "Google"
+    },
+    "asia-east2": {
+      "co2e_per_kwh": 0.626,
+      "location": "Hong Kong",
+      "source": "Google"
+    },
+    "asia-northeast1": {
+      "co2e_per_kwh": 0.524,
+      "location": "Tokyo, Japan",
+      "source": "Google"
+    },
+    "asia-northeast2": {
+      "co2e_per_kwh": 0.524,
+      "location": "Osaka, Japan",
+      "source": "Google"
+    },
+    "asia-northeast3": {
+      "co2e_per_kwh": 0.54,
+      "location": "Seoul, South Korea",
+      "source": "Google"
+    },
+    "asia-south1": {
+      "co2e_per_kwh": 0.723,
+      "location": "Mumbai, India",
+      "source": "Google"
+    },
+    "asia-south2": {
+      "co2e_per_kwh": 0.723,
+      "location": "Delhi, India",
+      "source": "Google (region proxy)"
+    },
+    "asia-southeast1": {
+      "co2e_per_kwh": 0.493,
+      "location": "Singapore",
+      "source": "Google"
+    },
+    "asia-southeast2": {
+      "co2e_per_kwh": 0.772,
+      "location": "Jakarta, Indonesia",
+      "source": "Google"
+    },
+    "australia-southeast1": {
+      "co2e_per_kwh": 0.725,
+      "location": "Sydney, Australia",
+      "source": "Google"
+    },
+    "australia-southeast2": {
+      "co2e_per_kwh": 0.725,
+      "location": "Melbourne, Australia",
+      "source": "Google (region proxy)"
+    },
+    "europe-north1": {
+      "co2e_per_kwh": 0.181,
+      "location": "Finland",
+      "source": "Google"
+    },
+    "europe-west1": {
+      "co2e_per_kwh": 0.196,
+      "location": "Belgium",
+      "source": "Google"
+    },
+    "europe-west2": {
+      "co2e_per_kwh": 0.257,
+      "location": "London, UK",
+      "source": "Google"
+    },
+    "europe-west3": {
+      "co2e_per_kwh": 0.319,
+      "location": "Frankfurt, Germany",
+      "source": "Google"
+    },
+    "europe-west4": {
+      "co2e_per_kwh": 0.474,
+      "location": "Netherlands",
+      "source": "Google"
+    },
+    "europe-west6": {
+      "co2e_per_kwh": 0.029,
+      "location": "Zurich, Switzerland",
+      "source": "Google"
+    },
+    "europe-west9": {
+      "co2e_per_kwh": 0.052,
+      "location": "Paris, France",
+      "source": "Google (region proxy, France EEA factor)"
+    },
+    "europe-central2": {
+      "co2e_per_kwh": 0.66,
+      "location": "Warsaw, Poland",
+      "source": "IEA/Ember country-average estimate"
+    },
+    "northamerica-northeast1": {
+      "co2e_per_kwh": 0.143,
+      "location": "Montreal, Canada",
+      "source": "Google"
+    },
+    "northamerica-northeast2": {
+      "co2e_per_kwh": 0.143,
+      "location": "Toronto, Canada",
+      "source": "Google (region proxy)"
+    },
+    "southamerica-east1": {
+      "co2e_per_kwh": 0.109,
+      "location": "Sao Paulo, Brazil",
+      "source": "Google"
+    }
+  }
+}

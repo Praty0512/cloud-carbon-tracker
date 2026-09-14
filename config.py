@@ -11,8 +11,20 @@ from pathlib import Path
 
 DATA_DIR = Path(__file__).parent / "data"
 with open(DATA_DIR / "region_intensity.json", encoding="utf-8") as file_handle:
+    # Coarse country/city-bucket grid carbon intensity, in kg CO2e per kWh.
+    # These are now real sourced figures (EPA eGRID, EEA, Google, EMA
+    # Singapore, carbonfootprint.com -- see engine/emission_factors.py and
+    # docs/CARBON_METHODOLOGY.md for full provenance) rather than the
+    # arbitrary 0-1 scale this file originally shipped with. This table is
+    # a coarse fallback for the manual calculator; anything that knows the
+    # real cloud provider + region code should use
+    # engine.emission_factors.get_regional_intensity() instead, which reads
+    # provider-specific region tables (data/grid_emissions_{aws,gcp,azure}.json).
     REGION_INTENSITY = json.load(file_handle)
 
+# Deprecated: superseded by the Cloud Carbon Footprint-style methodology in
+# engine/emission_factors.py (per-vCPU wattage curve + provider PUE). Kept
+# only so any external script importing these names does not break.
 COMPUTE_FACTOR = 0.5
 STORAGE_FACTOR = 0.0002
 NETWORK_FACTOR = 0.0005
@@ -109,7 +121,7 @@ CLOUD_PROVIDERS = {
 PAGE_CONFIG = {
     "layout": "wide",
     "page_title": "Cloud Carbon Tracker",
-    "page_icon": "C",
+    "page_icon": "\U0001f30d",  # globe -- browser tab / bookmark icon
 }
 
 NAV_SECTIONS = {

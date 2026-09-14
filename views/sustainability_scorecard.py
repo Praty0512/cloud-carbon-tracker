@@ -10,18 +10,19 @@ from database.service import ActivityService, SavedReportService
 from engine.carbon_engine import calculate_carbon
 from utils.demo_workspace import build_demo_telemetry
 from utils.dataset_adapter import normalize_cloud_carbon_dataframe, summarize_dataset_fit
+from utils.ui import card, metric_row, page_header
 
 
 def show():
     """Display the Sustainability Scorecard page."""
-    st.header("Executive Scorecards")
-    st.caption("Turn uploaded telemetry into stakeholder-ready carbon summaries and executive metrics.")
-    st.info(
-        "This page is for turning telemetry into a simple management summary. "
-        "It is useful when you need an at-a-glance view of emissions performance, regional distribution, and the overall sustainability posture of a dataset."
+    page_header(
+        "Executive Scorecards",
+        "Turn uploaded telemetry into stakeholder-ready carbon summaries and executive metrics -- an at-a-glance "
+        "view of emissions performance, regional distribution, and the overall sustainability posture of a dataset.",
+        icon="\U0001f3c6",
     )
 
-    if st.button("Use Demo Scorecard Dataset", use_container_width=False):
+    if st.button("\U0001f331 Use Demo Scorecard Dataset", use_container_width=False):
         st.session_state["scorecard_demo_df"] = build_demo_telemetry()
 
     file = st.file_uploader("Upload Dataset", type=["csv"])
@@ -65,98 +66,100 @@ def show():
                 "The scorecard uses normalized telemetry, so uploaded datasets are first mapped into the workspace model before metrics are calculated."
             )
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Carbon", f"{scorecard['Total Carbon']} kg CO2")
-            with col2:
-                st.metric("Average Carbon", f"{scorecard['Average Carbon']} kg CO2")
-            with col3:
-                st.metric("Sustainability Score", scorecard["Sustainability Score"])
+            metric_row(
+                [
+                    ("Total Carbon", f"{scorecard['Total Carbon']} kg CO2", "Sum across normalized telemetry."),
+                    ("Average Carbon", f"{scorecard['Average Carbon']} kg CO2", "Mean per record."),
+                    ("Sustainability Score", str(scorecard["Sustainability Score"]), "Composite scorecard rating."),
+                ]
+            )
 
-            st.subheader("Region Distribution")
-            st.caption(
-                f"This section separates executive region rollups from the exact operating regions behind them. "
-                f"{PRODUCT_GLOSSARY['operating_region']} {PRODUCT_GLOSSARY['reporting_region']}"
-            )
-            chart_left, chart_right = st.columns(2)
-            reporting_region_df = (
-                df.groupby("reporting_region", as_index=False)
-                .agg({"carbon": "sum"})
-                .sort_values("carbon", ascending=False)
-            )
-            fig = px.pie(
-                reporting_region_df,
-                names="reporting_region",
-                values="carbon",
-                title="Carbon By Reporting Region",
-            )
-            chart_left.plotly_chart(fig, use_container_width=True)
-
-            operating_region_df = (
-                df.groupby("operating_region", as_index=False)
-                .agg({"carbon": "sum"})
-                .sort_values("carbon", ascending=False)
-                .head(8)
-            )
-            fig = px.bar(
-                operating_region_df,
-                x="operating_region",
-                y="carbon",
-                title="Top Operational Regions",
-                labels={"operating_region": "Operational Region", "carbon": "Carbon (kg CO2)"},
-            )
-            fig.update_layout(xaxis_tickangle=-20)
-            chart_right.plotly_chart(fig, use_container_width=True)
-
-            st.subheader("Regional Accountability View")
-            st.caption("Use this table when leaders or operators need to trace a rolled-up region total back to the source telemetry geography.")
-            region_register = (
-                df.groupby(["operating_region", "reporting_region", "source_region", "region_key"], as_index=False)
-                .agg({"carbon": "sum", "cost": "sum", "grid_intensity": "max"})
-                .sort_values("carbon", ascending=False)
-                .rename(
-                    columns={
-                        "operating_region": "Operational Region",
-                        "reporting_region": "Reporting Region",
-                        "source_region": "Imported Region",
-                        "region_key": "Region Key",
-                        "carbon": "Carbon (kg CO2)",
-                        "cost": "Cost (USD)",
-                        "grid_intensity": "Grid Intensity (kg CO2/kWh)",
-                    }
+            with card("Region Distribution", icon="\U0001f30d"):
+                st.caption(
+                    f"This section separates executive region rollups from the exact operating regions behind them. "
+                    f"{PRODUCT_GLOSSARY['operating_region']} {PRODUCT_GLOSSARY['reporting_region']}"
                 )
-            )
-            st.dataframe(region_register.head(12), use_container_width=True)
+                chart_left, chart_right = st.columns(2)
+                reporting_region_df = (
+                    df.groupby("reporting_region", as_index=False)
+                    .agg({"carbon": "sum"})
+                    .sort_values("carbon", ascending=False)
+                )
+                fig = px.pie(
+                    reporting_region_df,
+                    names="reporting_region",
+                    values="carbon",
+                    title="Carbon By Reporting Region",
+                )
+                fig.update_layout(margin=dict(l=10, r=10, t=48, b=10))
+                chart_left.plotly_chart(fig, use_container_width=True)
 
-            st.subheader("Data Preview")
-            st.caption("This preview shows the normalized rows used to build the scorecard.")
-            preview_columns = [
-                "timestamp",
-                "project",
-                "service",
-                "source_region",
-                "operating_region",
-                "reporting_region",
-                "grid_intensity",
-                "carbon",
-                "cost",
-            ]
-            st.dataframe(
-                df[preview_columns].rename(
-                    columns={
-                        "timestamp": "Timestamp",
-                        "project": "Project",
-                        "service": "Service",
-                        "source_region": "Imported Region",
-                        "operating_region": "Operational Region",
-                        "reporting_region": "Reporting Region",
-                        "grid_intensity": "Grid Intensity (kg CO2/kWh)",
-                        "carbon": "Carbon (kg CO2)",
-                        "cost": "Cost (USD)",
-                    }
-                ),
-                use_container_width=True,
-            )
+                operating_region_df = (
+                    df.groupby("operating_region", as_index=False)
+                    .agg({"carbon": "sum"})
+                    .sort_values("carbon", ascending=False)
+                    .head(8)
+                )
+                fig = px.bar(
+                    operating_region_df,
+                    x="operating_region",
+                    y="carbon",
+                    title="Top Operational Regions",
+                    labels={"operating_region": "Operational Region", "carbon": "Carbon (kg CO2)"},
+                )
+                fig.update_layout(xaxis_tickangle=-20, margin=dict(l=10, r=10, t=48, b=10))
+                chart_right.plotly_chart(fig, use_container_width=True)
+
+            with card("Regional Accountability View", icon="\U0001f4cd"):
+                st.caption("Use this table when leaders or operators need to trace a rolled-up region total back to the source telemetry geography.")
+                region_register = (
+                    df.groupby(["operating_region", "reporting_region", "source_region", "region_key"], as_index=False)
+                    .agg({"carbon": "sum", "cost": "sum", "grid_intensity": "max"})
+                    .sort_values("carbon", ascending=False)
+                    .rename(
+                        columns={
+                            "operating_region": "Operational Region",
+                            "reporting_region": "Reporting Region",
+                            "source_region": "Imported Region",
+                            "region_key": "Region Key",
+                            "carbon": "Carbon (kg CO2)",
+                            "cost": "Cost (USD)",
+                            "grid_intensity": "Grid Intensity (kg CO2/kWh)",
+                        }
+                    )
+                )
+                st.dataframe(region_register.head(12), use_container_width=True, hide_index=True)
+
+            with card("Data Preview", icon="\U0001f50e"):
+                st.caption("This preview shows the normalized rows used to build the scorecard.")
+                preview_columns = [
+                    "timestamp",
+                    "project",
+                    "service",
+                    "source_region",
+                    "operating_region",
+                    "reporting_region",
+                    "grid_intensity",
+                    "carbon",
+                    "cost",
+                ]
+                st.dataframe(
+                    df[preview_columns].rename(
+                        columns={
+                            "timestamp": "Timestamp",
+                            "project": "Project",
+                            "service": "Service",
+                            "source_region": "Imported Region",
+                            "operating_region": "Operational Region",
+                            "reporting_region": "Reporting Region",
+                            "grid_intensity": "Grid Intensity (kg CO2/kWh)",
+                            "carbon": "Carbon (kg CO2)",
+                            "cost": "Cost (USD)",
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
             org_id = st.session_state.get("current_org_id")
             user = st.session_state.get("current_user")

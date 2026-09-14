@@ -1,0 +1,57 @@
+# Local/staging stack: app (Streamlit UI) + api (FastAPI backend) + Postgres.
+# `docker compose up` brings up all three. For a single-container quick
+# start with the SQLite default instead, just `docker build . && docker run`
+# (see Dockerfile) without this file.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: carbon_tracker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carbon_tracker_dev_password}
+      POSTGRES_DB: carbon_tracker
+    volumes:
+      - carbon_tracker_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carbon_tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    command: ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
+    ports:
+      - "8501:8501"
+    environment:
+      DATABASE_URL: postgresql+psycopg://carbon_tracker:${POSTGRES_PASSWORD:-carbon_tracker_dev_password}@db:5432/carbon_tracker
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env -- see .env.example}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env -- see .env.example}
+      STREAMLIT_SESSION_SECRET: ${STREAMLIT_SESSION_SECRET:?set STREAMLIT_SESSION_SECRET in .env -- see .env.example}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data:ro
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://carbon_tracker:${POSTGRES_PASSWORD:-carbon_tracker_dev_password}@db:5432/carbon_tracker
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env -- see .env.example}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env -- see .env.example}
+      CORS_ORIGINS: http://localhost:3000,http://localhost:8501
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  carbon_tracker_pgdata:

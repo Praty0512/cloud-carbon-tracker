@@ -108,6 +108,13 @@ usage_data = Table(
     Column("cost", Float),
     Column("timestamp", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    # Added for standardized, real-provider-data ingestion (see
+    # engine.standardized_carbon_engine / utils.dataset_adapter). "region"
+    # above stays the coarse app bucket for backward compatibility;
+    # region_key carries the actual provider region code (e.g. "ap-south-1").
+    Column("provider", String(50)),
+    Column("region_key", String(100)),
+    Column("data_quality", String(20)),
 )
 
 carbon_results = Table(
@@ -123,6 +130,35 @@ carbon_results = Table(
     Column("network_energy", Float),
     Column("region", String(100)),
     Column("timestamp", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    # See usage_data above -- same additive, backward-compatible columns so
+    # compliance reporting can disclose real region + data-quality tier
+    # instead of only the coarse india/us/europe bucket.
+    Column("provider", String(50)),
+    Column("region_key", String(100)),
+    Column("data_quality", String(20)),
+)
+
+# GHG Protocol Scope 2 market-based accounting requires evidence of a
+# contractual instrument (PPA, supplier-specific factor, or unbundled
+# Energy Attribute Certificates/RECs). Previously this app had no way to
+# record one at all, so every Scope 2 figure was implicitly location-based
+# with no disclosure of that fact. See compliance/ghg_protocol.py.
+renewable_energy_contracts = Table(
+    "renewable_energy_contracts",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("organization_id", ForeignKey("organizations.id"), nullable=False),
+    Column("cloud_account_id", ForeignKey("cloud_accounts.id")),
+    Column("instrument_type", String(50), nullable=False),  # ppa | supplier_specific | energy_attribute_certificate
+    Column("provider", String(50)),
+    Column("region_key", String(100)),
+    Column("co2e_per_kwh", Float, nullable=False),
+    Column("covered_kwh_per_period", Float),
+    Column("source", String(255)),
+    Column("valid_from", DateTime(timezone=True)),
+    Column("valid_to", DateTime(timezone=True)),
+    Column("created_by", ForeignKey("users.id")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
@@ -300,9 +336,55 @@ forecast_models = Table(
 )
 
 
+def _run_additive_migrations() -> None:
+    """Add newly-introduced nullable columns to pre-existing SQLite tables.
+
+    ``metadata.create_all()`` only creates tables that don't exist yet; it
+    never alters a table that is already on disk. Since this project ships
+    a real ``carbon_tracker.db`` that users already have data in, new
+    columns (``provider`` / ``region_key`` / ``data_quality`` on
+    ``usage_data`` and ``carbon_results``, added for standardized
+    multi-cloud ingestion and compliance reporting) need an explicit,
+    additive migration rather than silently never appearing. This only
+    supports SQLite's ``ALTER TABLE ... ADD COLUMN`` (sufficient for this
+    project); a Postgres deployment should run a proper Alembic migration
+    instead -- see docs/ROADMAP.md.
+    """
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+
+    additive_columns = {
+        "usage_data": [
+            ("provider", "VARCHAR(50)"),
+            ("region_key", "VARCHAR(100)"),
+            ("data_quality", "VARCHAR(20)"),
+        ],
+        "carbon_results": [
+            ("provider", "VARCHAR(50)"),
+            ("region_key", "VARCHAR(100)"),
+            ("data_quality", "VARCHAR(20)"),
+        ],
+    }
+
+    with engine.begin() as connection:
+        for table_name, columns in additive_columns.items():
+            existing = {
+                row[1]  # PRAGMA table_info: (cid, name, type, notnull, dflt_value, pk)
+                for row in connection.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
+            }
+            if not existing:
+                continue  # table doesn't exist yet -- create_all() will create it with all columns
+            for column_name, column_type in columns:
+                if column_name not in existing:
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+                    )
+
+
 def init_db() -> None:
-    """Create all tables."""
+    """Create all tables, then apply additive migrations for existing databases."""
     metadata.create_all(engine)
+    _run_additive_migrations()
 
 
 @contextmanager

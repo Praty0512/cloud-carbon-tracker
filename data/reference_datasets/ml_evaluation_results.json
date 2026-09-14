@@ -1,0 +1,110 @@
+{
+  "real_azure_fleet_30day": {
+    "series_name": "real_azure_fleet_30day",
+    "series_length_days": 30,
+    "usable_training_rows_after_feature_lags": 23,
+    "model_selected": "random_forest",
+    "model_library": "scikit-learn",
+    "used_sklearn": true,
+    "cv_folds": 3,
+    "cv_mae_kg_co2e": 503.0891,
+    "cv_mape_pct": 2.18,
+    "fitted_mae_kg_co2e": 503.0891,
+    "residual_p10_p90_kg_co2e": [
+      -893.9783,
+      658.0773
+    ],
+    "feature_importance": {
+      "lag_7": 0.5342,
+      "dow_sin": 0.3524,
+      "rolling_7": 0.0438,
+      "index": 0.0191,
+      "dow_cos": 0.0131,
+      "rolling_3": 0.0128,
+      "lag_1": 0.0124,
+      "lag_3": 0.0122
+    },
+    "sample_7day_forecast_kg_co2e": [
+      21900.39,
+      24074.26,
+      24103.91,
+      24104.23,
+      24172.73,
+      24089.29,
+      22212.79
+    ],
+    "anomalies_detected": 3,
+    "top_anomalies": [
+      "AnomalyFlag(day=Timestamp('2024-01-24 00:00:00'), carbon=21087.8367, baseline=23926.011, deviation_pct=-11.862296226479202, severity='low')",
+      "AnomalyFlag(day=Timestamp('2024-01-12 00:00:00'), carbon=24771.1818, baseline=23021.6731, deviation_pct=7.599398585848213, severity='low')",
+      "AnomalyFlag(day=Timestamp('2024-01-25 00:00:00'), carbon=24201.2906, baseline=23984.8927, deviation_pct=0.9022258415189822, severity='low')"
+    ],
+    "leaderboard_all_candidates_cv_mae_kg_co2e": {
+      "random_forest": 503.0891,
+      "lstm": 534.8193,
+      "gradient_boosting": 553.6679,
+      "ridge_regression": 676.0717,
+      "lightgbm": 712.2157,
+      "sarimax": 762.8168,
+      "xgboost": 819.0501
+    },
+    "winning_hyperparameters": {
+      "n_estimators": 200,
+      "max_depth": 3
+    }
+  },
+  "block_bootstrap_extended_210day": {
+    "series_name": "block_bootstrap_extended_210day",
+    "series_length_days": 210,
+    "usable_training_rows_after_feature_lags": 203,
+    "model_selected": "random_forest",
+    "model_library": "scikit-learn",
+    "used_sklearn": true,
+    "cv_folds": 5,
+    "cv_mae_kg_co2e": 894.369,
+    "cv_mape_pct": 3.73,
+    "fitted_mae_kg_co2e": 894.369,
+    "residual_p10_p90_kg_co2e": [
+      -1308.3201,
+      1544.2923
+    ],
+    "feature_importance": {
+      "lag_1": 0.3644,
+      "rolling_3": 0.1898,
+      "lag_3": 0.1032,
+      "index": 0.1004,
+      "rolling_7": 0.0706,
+      "dow_cos": 0.0624,
+      "lag_7": 0.0568,
+      "dow_sin": 0.0525
+    },
+    "sample_7day_forecast_kg_co2e": [
+      23373.33,
+      23703.38,
+      23695.86,
+      23239.69,
+      23187.07,
+      23211.23,
+      23572.77
+    ],
+    "anomalies_detected": 5,
+    "top_anomalies": [
+      "AnomalyFlag(day=Timestamp('2024-01-15 00:00:00'), carbon=21222.129739033026, baseline=24139.061708942194, deviation_pct=-12.083866411545754, severity='low')",
+      "AnomalyFlag(day=Timestamp('2024-06-06 00:00:00'), carbon=25274.127557994485, baseline=22633.31623662453, deviation_pct=11.667805520680506, severity='low')",
+      "AnomalyFlag(day=Timestamp('2024-04-04 00:00:00'), carbon=22201.02001028406, baseline=24623.405192065547, deviation_pct=-9.837734313701084, severity='low')"
+    ],
+    "leaderboard_all_candidates_cv_mae_kg_co2e": {
+      "random_forest": 894.369,
+      "lightgbm": 897.1096,
+      "ridge_regression": 934.6008,
+      "gradient_boosting": 936.3055,
+      "xgboost": 946.9997,
+      "lstm": 1059.8196,
+      "sarimax": 1149.9208
+    },
+    "winning_hyperparameters": {
+      "n_estimators": 200,
+      "max_depth": 8
+    }
+  }
+}

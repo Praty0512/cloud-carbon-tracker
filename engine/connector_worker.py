@@ -11,6 +11,10 @@ from typing import Any
 
 import pandas as pd
 
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class ConnectorExecutionResult:
@@ -465,6 +469,10 @@ def run_connector_job(job: dict[str, Any]) -> ConnectorExecutionResult:
 
     connector = ConnectorService.get_connector(int(job["connector_id"]))
     if not connector:
+        logger.error(
+            "connector_job.missing_connector",
+            extra={"job_id": job["id"], "connector_id": job["connector_id"]},
+        )
         return ConnectorExecutionResult(
             provider="unknown",
             status="failed",
@@ -473,13 +481,29 @@ def run_connector_job(job: dict[str, Any]) -> ConnectorExecutionResult:
             next_steps=["Re-register the connector or remove the invalid job."],
             payload={"job_id": job["id"], "connector_id": job["connector_id"]},
         )
-    return execute_connector_sync(
+
+    logger.info(
+        "connector_job.started",
+        extra={"job_id": job["id"], "connector_id": job["connector_id"], "organization_id": job["organization_id"]},
+    )
+    result = execute_connector_sync(
         connector,
         org_id=int(job["organization_id"]),
         created_by=job.get("requested_by"),
         trigger_mode=str(job.get("trigger_mode") or "scheduled"),
         job_id=int(job["id"]),
     )
+    log_fn = logger.info if result.status not in {"failed", "error"} else logger.warning
+    log_fn(
+        "connector_job.finished",
+        extra={
+            "job_id": job["id"],
+            "connector_id": job["connector_id"],
+            "provider": result.provider,
+            "status": result.status,
+        },
+    )
+    return result
 
 
 def execute_due_jobs(limit: int = 5) -> list[ConnectorExecutionResult]:
@@ -487,7 +511,17 @@ def execute_due_jobs(limit: int = 5) -> list[ConnectorExecutionResult]:
     from database.service import ConnectorJobService
 
     claimed_jobs = ConnectorJobService.claim_due_jobs(limit=limit)
+    logger.info("connector_sync.batch_claimed", extra={"claimed_count": len(claimed_jobs), "limit": limit})
     results: list[ConnectorExecutionResult] = []
     for job in claimed_jobs:
-        results.append(run_connector_job(job))
+        try:
+            results.append(run_connector_job(job))
+        except Exception:
+            logger.exception("connector_job.unhandled_error", extra={"job_id": job.get("id")})
+            raise
+    failed = sum(1 for r in results if r.status in {"failed", "error"})
+    logger.info(
+        "connector_sync.batch_finished",
+        extra={"total": len(results), "failed": failed, "succeeded": len(results) - failed},
+    )
     return results
